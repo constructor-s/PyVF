@@ -1,0 +1,4 @@
+[submodule "pyvf/resources/R/visualFields"]
+	path = pyvf/resources/R/visualFields
+	url = https://github.com/cran/visualFields.git
+	branch = master
