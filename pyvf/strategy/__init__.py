@@ -158,7 +158,7 @@ class Strategy:
         self.param['blindspot'] = blindspot
         self.param['model'] = model  # type: Model
         self.param['min_db'] = 0
-        self.param['max_db'] = 35
+        self.param['max_db'] = 40
 
     def get_stimulus_threshold(self, data):
         raise NotImplementedError()
@@ -233,17 +233,17 @@ class DoubleStaircaseStrategy(Strategy):
             if (len(data_m) > 0 and
                     data_m[-1][THRESHOLD] >= self.param["max_db"] and
                     data_m[-1][RESPONSE] == STIMULUS_SEEN):
-                # Report 1 dB higher than the max. This is just to be symmetric with the flooring case below.
-                # I don't know if this is a standard implementation. The 1 dB is chosen arbitrarily.
-                threshold[m] = self.param["max_db"] + 1.0
+                # Report 0.01 dB higher than the max. This is just to be symmetric with the flooring case below.
+                # I don't know if this is a standard implementation. The 0.01 dB is chosen arbitrarily.
+                threshold[m] = self.param["max_db"] + 0.01
             elif (len(data_m) > 0 and
                     data_m[-1][THRESHOLD] <= self.param["min_db"] and
                     data_m[-1][RESPONSE] == STIMULUS_NOT_SEEN):
-                # This is arguable more important than the case above
-                # It is my impression that on HFA reports there are some locations reported as 0 and some reported as <0
-                # Since min_db is almost always 0 dB, we specify this case as -1 dB, so that this may be reported as <0
-                # I don't know if this is a standard implementation. The 1 dB is chosen arbitrarily.
-                threshold[m] = self.param["min_db"] - 1.0
+                # This is arguable more important than the case above. It is my impression that on HFA reports there
+                # are some locations reported as 0 and some reported as <0. Since min_db is almost always 0 dB,
+                # we specify this case as -0.01 dB, so that this may be reported as <0.
+                # I don't know if this is a standard implementation. The 0.01 dB is chosen arbitrarily.
+                threshold[m] = self.param["min_db"] - 0.01
 
             # Handle an edge case - this should never be encountered!
             elif reversals > len(self.param["step"]):
