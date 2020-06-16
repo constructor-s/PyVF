@@ -167,25 +167,26 @@ class Strategy:
         return np.clip(x, self.param['min_db'], self.param['max_db'])
 
 class DoubleStaircaseStrategy(Strategy):
-    def __init__(self, pattern, blindspot, model, step=(4, 2), threshold_func=None, *args, **kwargs):
+    def __init__(self, pattern, blindspot, model, step=(4, 2), threshold_func=None, repeat_threshold=4.0, *args, **kwargs):
         """
 
         Parameters
         ----------
         step
-        threshold_func : if not specified, default to DoubleStaircaseStrategy.get_last_seen_threshold
+        threshold_func : if not specified, default to DoubleStaircaseStrategy.get_last_seen_threshold or the mean of the two determinations (each determined by the last seen threshold)
+        repeat_threshold : float. This is to implement the behavior of HFA Full Threshold: If the difference between the first determination and the expected normal value is more than 4 dB, repeat the staircase at the new estimate.
         args
         kwargs
         """
         super().__init__(pattern, blindspot, model, *args, **kwargs)
         self.param["step"] = step
-        self.param["repeat"] = False  # Repeat is currently not implemented
+        self.param["repeat_threshold"] = repeat_threshold  # Repeat is currently not implemented
 
         self.param["test_sequence"] = np.arange(len(self.param['pattern']))
         assert len(self.param['pattern']) == len(np.unique(self.param["test_sequence"]))
 
         if threshold_func is None:
-            threshold_func = DoubleStaircaseStrategy.get_last_seen_threshold
+            threshold_func = DoubleStaircaseStrategy.get_last_seen_threshold_or_mean
         self.param["threshold_func"] = threshold_func
 
     def get_stimulus_threshold(self, data):
@@ -213,162 +214,334 @@ class DoubleStaircaseStrategy(Strategy):
         threshold is a list of length M of current threshold estimates
         """
         data = Stimulus.to_numpy(data)
-        stimulus = None
-        threshold = np.full(len(self.param['pattern']), np.nan)
+        stimulus = None  # The next stimulus to be presented
+        threshold = np.full(len(self.param['pattern']), np.nan)  # The current best estimate of point thresholds
 
         # Use m = 1 ... M to index SAP locations
         # right now there is no randomization... just use the test_sequence to rank stimulus test order
         for m in self.param["test_sequence"]:
-            # Get subset of relevant data
-            data_m = data[data[LOC] == m]  # type: np.ndarray
-            data_m = np.sort(data_m, axis=0, order=TSRESP)
+            # Convenient lambda function for generating next stimulus
+            location = self.param["pattern"][m]
+            get_new_stimulus_at = lambda db: Stimulus(
+                xod=location[XOD],
+                yod=location[YOD],
+                loc=location[LOC],
+                size=location[SIZE],
+                threshold=self.clip_stimulus_intensity(db),
+                response=STIMULUS_NO_RESPONSE,
+                tsdisp=STIMULUS_TS_NONE,
+                tsresp=STIMULUS_TS_NONE
+            )
 
+            # Get subset of relevant data_m
+            data_m = data[data[LOC] == m]  # type: np.ndarray
+            # Data should already be sorted, but just be sure
+            data_m = np.sort(data_m, axis=0, order=TSRESP)
+            # Extract the response sequence column, e.g. [0, 0, 1, 0, 1, 0, 0, 1]
             response_sequence = data_m[RESPONSE]
             # We assume no error in the trial threshold implementation,
             # and only look at the trend of seen/not seen to determine staircase state
-            reversals, direction = DoubleStaircaseStrategy.get_staircase_stats(response_sequence)
+            # e.g. reversals_list = [0, 0, 1, 2, 0, 1, 1, 2] where in this example,
+            # after the first four responses there is a repeated double determination
+            if len(data_m) == 0:
+                force_terminate = ()
+            else:
+                force_terminate = ((data_m[THRESHOLD] >= self.param["max_db"]) &
+                                   (data_m[RESPONSE] == STIMULUS_SEEN))
+                force_terminate |= ((data_m[THRESHOLD] <= self.param["min_db"]) &
+                                    (data_m[RESPONSE] == STIMULUS_NOT_SEEN))
+            reversals_list, repeats_list = DoubleStaircaseStrategy.get_staircase_stats(response_sequence,
+                                                                         step=self.param["step"],
+                                                                         force_terminate=force_terminate)
+
+            # # The direction variable stores which way (math sign) the next step should go
+            # if len(response_sequence) == 0:
+            #     direction = 0  # The sign is really not important for the first one anyways
+            # else:
+            #     # mapping: seen = 1 -> 1, next stimulus should have a higher dB,
+            #     #      not seen = 0 -> -1
+            #     direction = response_sequence[-1] * 2 - 1
 
             # Calculate threshold, and, at the same time, produce a stimulus if necessary
-            # First check the last presentation response for ceiling or flooring effects
-            if (len(data_m) > 0 and
-                    data_m[-1][THRESHOLD] >= self.param["max_db"] and
-                    data_m[-1][RESPONSE] == STIMULUS_SEEN):
+            # If no test has been done yet and we do not already know what to test next (stimulus is None)
+            if len(data_m) == 0:
+                threshold[m] = self.param["model"].get_mean()[m]
+                if stimulus is None:
+                    stimulus = get_new_stimulus_at(threshold[m])
+                else:
+                    pass
+
+            # Check the last presentation response for ceiling or flooring effects,
+            # and this is also termination of the staircase
+            elif (data_m[-1][THRESHOLD] >= self.param["max_db"] and
+                  data_m[-1][RESPONSE] == STIMULUS_SEEN):
                 # Report 0.01 dB higher than the max. This is just to be symmetric with the flooring case below.
                 # I don't know if this is a standard implementation. The 0.01 dB is chosen arbitrarily.
                 threshold[m] = self.param["max_db"] + 0.01
-            elif (len(data_m) > 0 and
-                    data_m[-1][THRESHOLD] <= self.param["min_db"] and
-                    data_m[-1][RESPONSE] == STIMULUS_NOT_SEEN):
+                if repeats_list[-1] == 0 and abs(threshold[m] - self.param["model"].get_mean()[m]) > self.param["repeat_threshold"]:
+                    stimulus = get_new_stimulus_at(threshold[m])
+                else:
+                    pass  # We are done here
+
+            elif (data_m[-1][THRESHOLD] <= self.param["min_db"] and
+                  data_m[-1][RESPONSE] == STIMULUS_NOT_SEEN):
                 # This is arguable more important than the case above. It is my impression that on HFA reports there
                 # are some locations reported as 0 and some reported as <0. Since min_db is almost always 0 dB,
                 # we specify this case as -0.01 dB, so that this may be reported as <0.
                 # I don't know if this is a standard implementation. The 0.01 dB is chosen arbitrarily.
                 threshold[m] = self.param["min_db"] - 0.01
+                if repeats_list[-1] == 0 and abs(threshold[m] - self.param["model"].get_mean()[m]) > self.param["repeat_threshold"]:
+                    stimulus = get_new_stimulus_at(threshold[m])
+                else:
+                    pass  # We are done here
 
             # Handle an edge case - this should never be encountered!
-            elif reversals > len(self.param["step"]):
+            elif reversals_list[-1] > len(self.param["step"]):
                 # More than the desired number of reversals! Invalid state
                 raise RuntimeError()
 
             # Now onto the much more typical cases
-            elif reversals == len(self.param["step"]):
+            # We have finished a staircase
+            elif reversals_list[-1] == len(self.param["step"]):
                 # this location has finished all staircase reversals
-                threshold[m] = DoubleStaircaseStrategy.get_last_seen_threshold(data_m)
+                threshold[m] = self.param["threshold_func"](self, data_m)
+                if repeats_list[-1] == 0 and abs(threshold[m] - self.param["model"].get_mean()[m]) > self.param["repeat_threshold"]:
+                    stimulus = get_new_stimulus_at(threshold[m])
+                else:
+                    pass  # We are done here
+
+            # We need to continue the staircase
             else:
                 # this location still needs testing
-                threshold[m] = DoubleStaircaseStrategy.get_last_seen_threshold(data_m)
+                threshold[m] = self.param["threshold_func"](self, data_m)
 
                 # if no next stimulus has been picked yet
                 if stimulus is None:
-                    if len(data_m) == 0:
-                        # Initial test starts at population mean
-                        threshold[m] = self.param["model"].get_mean()[m]
-                    else:
-                        # Get last threshold and apply the right step size
-                        threshold[m] = data_m[-1][THRESHOLD] + self.param["step"][reversals] * direction
+                    # Get last threshold and apply the right step size
+                    direction = +1 if data_m[-1][RESPONSE] == STIMULUS_SEEN else -1
 
+                    threshold[m] = data_m[-1][THRESHOLD] + self.param["step"][reversals_list[-1]] * direction
                     threshold[m] = self.clip_stimulus_intensity(threshold[m])
-                    location = self.param["pattern"][m]
-                    stimulus = Stimulus(
-                        xod=location[XOD],
-                        yod=location[YOD],
-                        loc=location[LOC],
-                        size=location[SIZE],
-                        threshold=threshold[m],
-                        response=STIMULUS_NO_RESPONSE,
-                        tsdisp=STIMULUS_TS_NONE,
-                        tsresp=STIMULUS_TS_NONE
-                    )
+
+                    stimulus = get_new_stimulus_at(db=threshold[m])
+                else:
+                    pass  # The algorithm already has another stimulus to test, nothing to do here
 
         return stimulus, threshold
 
     @staticmethod
-    def get_staircase_stats(sequence):
+    def get_staircase_stats(sequence, step=None, force_terminate=None, _rev_start=0, _rep_start=0):
         """
 
         Parameters
         ----------
         sequence
+        step
+
+        force_terminate : np.ndarray of booleans of the same length as sequence (optional)
+        wherever force_terminate==True, consider this the last element in this staircase, and
+        start recounting the staircase from zero starting from the next element
 
         Returns
         -------
-        (reversals, direction)
+        reversals : np.ndarray
+        repeats : np.ndarray
 
-        Return the number of reversals that has already happened in the sequence, and which direction is should go next
-        indicated by +1 or -1. If sequence is empty, returns 0, 0
+        Return the number of reversals that has already happened in the sequence for each response in sequence
+        If sequence is empty, returns [], []
+        If step is supplied, then resets the number of reversals after the first staircase is completed.
+        For example, for a double staircase (len(step)==2), then reversals will be mapped
+        from [0, 1, 2, 2, 3, 4] to [0, 1, 2, 0, 1, 2]
+        from [0, 1, 2, 3, 4, 5] to [0, 1, 2, 0, 1, 2] also
+        The discrepancy between [..., 2, 3] or [..., 2, 2] will be due to whether the first response of the repetition series is
+        the same as the last response in the initial series. However, since the repetition series is treated as
+        independent from the initial series, both of these cases should be reset to zero reversals at the start of the
+        repetition
         """
         if len(sequence) == 0:
-            return 0, 0
-
-        sequence = np.array(sequence, dtype=np.bool)
-
-        # Performance measured with [0, 0, 1, 1, 1, 0]
-        # Performance boost by switching to Numpy may be much larger for a long sequence?
-        # But we are always dealing with short sequences here.
-        # This function is on the order of microseconds anyways
-
-        # Python loop Performance: 0.055 per 10000 runs
-        """
-        # To simplify logic: assume the sequence starts with False, flip the sequence if this is not the case
-        starts_with_true = sequence[0] == True
-        if starts_with_true:
-            sequence = ~sequence
-
-        reversals = 0
-        for i in range(1, len(sequence)):  # We already made sure sequence[0] is False
-            if sequence[i]:
-                reversals += 1
-                sequence = ~sequence
-
-        # Assuming the sequence started with False (not seen),
-        # then for all all even reversals (0, 2) the direction is going down <- the direction is -1
-        # for all odd reversals (1) the direction is going up <- the modulus is 1
-        direction = (reversals % 2) * 2 - 1
-        # If the assumption above is not valid, then we want to flip -1 and 1,
-        # so that going up is represented by 1 and going down is represented by 0
-        if starts_with_true:
-            direction = -direction
-        """
-
-        # Vectorized version
-        # Performance using np.diff: 0.096 per 10000 runs
-        # reversals = np.count_nonzero(np.diff(sequence))
-        # Performance using bitwise XOR: 0.040 per 10000 runs
-        reversals = np.count_nonzero(sequence[1:] ^ sequence[:-1])  # bitwise XOR
-        if sequence[0]:
-            direction = 1 - (reversals % 2) * 2
+            return np.array([]), np.array([])
+        elif len(sequence) == 1:
+            return np.array([_rev_start]), np.array([_rep_start])
         else:
-            direction = (reversals % 2) * 2 - 1
+            sequence = np.array(sequence, dtype=np.bool)
 
-        return reversals, direction
+            if force_terminate is None:
+                force_terminate = np.zeros_like(sequence, dtype=np.bool)
+            else:
+                assert len(force_terminate) == len(sequence)
+                force_terminate = np.array(force_terminate, dtype=np.bool)
+
+            """
+            # Performance measured with [0, 0, 1, 1, 1, 0]
+            # Performance boost by switching to Numpy may be much larger for a long sequence?
+            # But we are always dealing with short sequences here.
+            # This function is on the order of microseconds anyways
+    
+            # Python loop Performance: 0.055 per 10000 runs
+            # 
+            # # To simplify logic: assume the sequence starts with False, flip the sequence if this is not the case
+            # starts_with_true = sequence[0] == True
+            # if starts_with_true:
+            #     sequence = ~sequence
+            # 
+            # reversals = 0
+            # for i in range(1, len(sequence)):  # We already made sure sequence[0] is False
+            #     if sequence[i]:
+            #         reversals += 1
+            #         sequence = ~sequence
+            # 
+            # # Assuming the sequence started with False (not seen),
+            # # then for all all even reversals (0, 2) the direction is going down <- the direction is -1
+            # # for all odd reversals (1) the direction is going up <- the modulus is 1
+            # direction = (reversals % 2) * 2 - 1
+            # # If the assumption above is not valid, then we want to flip -1 and 1,
+            # # so that going up is represented by 1 and going down is represented by 0
+            # if starts_with_true:
+            #     direction = -direction
+    
+            
+            # Vectorized version
+            # Performance using np.diff: 0.096 per 10000 runs
+            # reversals = np.count_nonzero(np.diff(sequence))
+            # Performance using bitwise XOR: 0.040 per 10000 runs
+            reversals = np.count_nonzero(sequence[1:] ^ sequence[:-1])  # bitwise XOR
+            if sequence[0]:
+                direction = 1 - (reversals % 2) * 2
+            else:
+                direction = (reversals % 2) * 2 - 1
+            
+    
+            reversals = np.cumsum(sequence[1:] ^ sequence[:-1])  # bitwise XOR
+            reversals = np.concatenate( [[0], reversals] )
+            # reversals = np.cumsum(np.diff(sequence, prepend=sequence[0]))
+    
+            if step is not None and len(step) > 0:
+                reversals = DoubleStaircaseStrategy._process_repeated_staircase(reversals, len(step))
+    
+            # if sequence[0]:
+            #     direction = 1 - (reversals % 2) * 2
+            # else:
+            #     direction = (reversals % 2) * 2 - 1
+    
+            # direction = sequence * 2 - 1
+    
+            return reversals
+        """
+
+            # New solution writing this as a recursion problem
+            # 0.8322514 sec for 10000 iterations
+
+            # General case
+            # This is the key of recursion
+            if force_terminate[0] or (step is not None and _rev_start == len(step)):  # Current staircase terminated
+                new_rev_start = 0
+                new_rep_start = _rep_start + 1
+            elif sequence[1] != sequence[0]:  # Next response is different from current -> there is a reversal
+                new_rev_start = _rev_start + 1
+                new_rep_start = _rep_start
+            else:  # Nothing exciting is happening
+                new_rev_start = _rev_start
+                new_rep_start = _rep_start
+
+            rest_reversals, rest_repeats = DoubleStaircaseStrategy.get_staircase_stats(
+                sequence=sequence[1:], step=step, force_terminate=force_terminate[1:],
+                _rev_start=new_rev_start, _rep_start=new_rep_start
+            )
+            reversals = [_rev_start]
+            reversals.extend(rest_reversals)
+            repeats = [_rep_start]
+            repeats.extend(rest_repeats)
+            # reversals = np.empty_like(sequence, dtype=np.int32)
+            # reversals[0] = _rev_start
+            # reversals[1:] = rest_reversals
+
+            return np.array(reversals), np.array(repeats)
 
     @staticmethod
-    def get_last_seen_threshold(data):
+    def _process_repeated_staircase(x, n):
         """
-        data1[THRESHOLD] are trial thresholds
-        data1[RESPONSE] are response results
 
-        If all responses are not seen, then return the last threshold.
-        If the data1 list is empty, then return nan
+        mapping:
+        - case A: from [0, 1, 2, 2, 3, 4, 4, 5, 6] to [0, 1, 2, 0, 1, 2, 0, 1, 2]
+        - case B: from [0, 1, 2, 3, 4, 5] to [0, 1, 2, 0, 1, 2]
 
         Parameters
         ----------
-        data
+        x : np.ndarray
+        n : int
 
         Returns
         -------
 
         """
-        if len(data) == 0:
+        if len(x) < 2:
+            return x
+
+        x1 = x == n
+        x2 = x >= n
+        prod = x1[:-1] & x2[1:]
+        idx = np.where(prod)[0]
+        while len(idx) > 0:
+            i = idx[0] + 1
+
+            x = np.array(x)
+            x[i:] -= x[i]
+
+            x1 = x == n
+            x2 = x >= n
+            prod = x1[:-1] & x2[1:]
+            idx = np.where(prod)[0]
+
+        return x
+
+    def get_last_seen_threshold(self, data_m):
+        """
+        data_m[THRESHOLD] are trial thresholds
+        data_m[RESPONSE] are response results
+
+        If all responses are not seen, then return the last threshold.
+        If the data_m list is empty, then return nan
+
+        Parameters
+        ----------
+        data_m : array_like
+
+        Returns
+        -------
+        threshold : float
+            last seen threshold
+
+        """
+        if len(data_m) == 0:
             return np.nan
 
-        idx_ = np.nonzero(data[RESPONSE] == STIMULUS_SEEN)
+        idx_ = np.nonzero(data_m[RESPONSE] == STIMULUS_SEEN)
         idx_ = idx_[0]
         if len(idx_) == 0:
             idx = -1
         else:
             idx = idx_[-1]
-        return data[THRESHOLD][idx]
+        return data_m[THRESHOLD][idx]
+
+    def get_last_seen_threshold_or_mean(self, data_m):
+        # Extract the response sequence column, e.g. [0, 0, 1, 0, 1, 0, 0, 1]
+        response_sequence = data_m[RESPONSE]
+        # We assume no error in the trial threshold implementation,
+        # and only look at the trend of seen/not seen to determine staircase state
+        # e.g. reversals_list = [0, 0, 1, 2, 0, 1, 1, 2] where in this example,
+        # after the first four responses there is a repeated double determination
+        if len(data_m) == 0:
+            force_terminate = ()
+        else:
+            force_terminate = ((data_m[THRESHOLD] >= self.param["max_db"]) &
+                               (data_m[RESPONSE] == STIMULUS_SEEN))
+            force_terminate |= ((data_m[THRESHOLD] <= self.param["min_db"]) &
+                                (data_m[RESPONSE] == STIMULUS_NOT_SEEN))
+        reversals_list, repeats_list = DoubleStaircaseStrategy.get_staircase_stats(response_sequence,
+                                                                                   step=self.param["step"],
+                                                                                   force_terminate=force_terminate)
+        thresholds = [self.get_last_seen_threshold(data_m[repeats_list == i]) for i in np.unique(repeats_list)]
+        return np.mean(thresholds)
 
 class Model:
     """
@@ -491,7 +664,7 @@ class PerfectResponder(Responder):
         self.threshold = np.array(true_threshold)
 
     def get_response(self, stimulus):
-        if stimulus.threshold < self.threshold[stimulus.loc]:
+        if stimulus.threshold <= self.threshold[stimulus.loc]:
             # Seen with zero response time
             return stimulus.copy(**{RESPONSE: STIMULUS_SEEN, TSRESP: stimulus[STIM_TSDISP]})
         else:

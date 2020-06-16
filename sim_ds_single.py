@@ -1,5 +1,5 @@
 """
-Simulation of a PerfectResponder on one single location with a 4-2 double staircase strategy without any retesting
+Simulation of a PerfectResponder on one single location with a 4-2 double staircase strategy with retesting
 
 The starting value is specified as a constant using a ConstantModel
 
@@ -34,7 +34,7 @@ import logging
 _logger = logging.getLogger(__name__)
 
 
-def simPerfectSingleStaircase(true_threshold, starting_threshold):
+def simPerfectSingleStaircase(true_threshold, starting_threshold, repeat_threshold=4):
     responder = PerfectResponder(true_threshold=[true_threshold])
     model = ConstantModel(eval_pattern=PATTERN_SINGLE,
                           mean=starting_threshold,
@@ -45,7 +45,8 @@ def simPerfectSingleStaircase(true_threshold, starting_threshold):
         blindspot=[],
         model=model,
         step=(4, 2),
-        threshold_func=DoubleStaircaseStrategy.get_last_seen_threshold
+        threshold_func=DoubleStaircaseStrategy.get_last_seen_threshold_or_mean,
+        repeat_threshold=repeat_threshold
     )
 
     data = []
@@ -67,7 +68,7 @@ def simPerfectSingleStaircase(true_threshold, starting_threshold):
 
 
 def sim_ds_single_offsets():
-    true_thresholds = np.array([-0.001, 25, 33, 40.001])
+    true_thresholds = np.array([-0.001, 25, 40.001])
     starting_threshold_offsets = np.arange(-10.5, 11.5, 1.0)
     data_collection = []
     for i, true_threshold in enumerate(true_thresholds):
@@ -83,7 +84,7 @@ def sim_ds_single_offsets():
     # Plotting
     import matplotlib.pyplot as plt
     fig, ax = plt.subplots(len(true_thresholds), len(starting_threshold_offsets),
-                           sharex='col', sharey='row', figsize=(10.5, 4.5))
+                           sharex='col', sharey='row', figsize=(21, 9))
     for i in range(ax.shape[0]):
         _logger.info("%d", i)
         for j in range(ax.shape[1]):
@@ -97,17 +98,21 @@ def sim_ds_single_offsets():
                           [0, len(data[TSDISP]) - 0.5], [true_thresholds[i], true_thresholds[i]], 'k:'
                           )
             ax[i, j].set_facecolor(plt.get_cmap('Reds', 10)(len(data) - 3))
-    fig.savefig("sim_ds_single.png")
+    fig.savefig("sim_ds_single.pdf")
+
+    return data_collection
 
 
 def sim_ds_single_turpin_2003_fig5():
-    true_thresholds = np.arange(0, 40.1, 1)
+    true_thresholds = np.arange(0, 40.1, 0.5)
     starting_thresholds = np.array([10, 20, 30])
+    repeat_threshold = 4
     data_collection = []
     for i, true_threshold in enumerate(true_thresholds):
         data_collection.append([])
         for j, starting_threshold in enumerate(starting_thresholds):
-            data = simPerfectSingleStaircase(true_threshold=true_threshold, starting_threshold=starting_threshold)
+            data = simPerfectSingleStaircase(true_threshold=true_threshold, starting_threshold=starting_threshold,
+                                             repeat_threshold=repeat_threshold)
             data_collection[i].append(data)
     # Calculate how many presentations did it take for each test condition
     presentations = [[len(x[0]) for x in l] for l in data_collection]
@@ -124,7 +129,7 @@ def sim_ds_single_turpin_2003_fig5():
         ax[0].set_ylabel("number of presentations")
         ax[0].set_yticks(np.arange(0, 16.1, 2))
         ax[0].grid(True)
-        ax[0].legend(["4-2 staircase, no retest"])
+        ax[0].legend([f"4-2 staircase, retest threshold = {repeat_threshold} dB"])
 
         ax[1].plot(true_thresholds, final_estimate[:, j] - true_thresholds, 'k.-')
         ax[1].set_ylabel("error (dB)")
@@ -137,9 +142,11 @@ def sim_ds_single_turpin_2003_fig5():
         fig.suptitle(f"Starting estimate = {starting_threshold}dB, No variability")
         fig.savefig(f"sim_ds_single_{starting_threshold}.pdf")
 
+    return data_collection
+
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
 
-    # sim_ds_single_offsets()
-    sim_ds_single_turpin_2003_fig5()
+    data_collection = sim_ds_single_offsets()
+    data_collection = sim_ds_single_turpin_2003_fig5()
