@@ -369,63 +369,6 @@ class DoubleStaircaseStrategy(Strategy):
                 assert len(force_terminate) == len(sequence)
                 force_terminate = np.array(force_terminate, dtype=np.bool)
 
-            """
-            # Performance measured with [0, 0, 1, 1, 1, 0]
-            # Performance boost by switching to Numpy may be much larger for a long sequence?
-            # But we are always dealing with short sequences here.
-            # This function is on the order of microseconds anyways
-    
-            # Python loop Performance: 0.055 per 10000 runs
-            # 
-            # # To simplify logic: assume the sequence starts with False, flip the sequence if this is not the case
-            # starts_with_true = sequence[0] == True
-            # if starts_with_true:
-            #     sequence = ~sequence
-            # 
-            # reversals = 0
-            # for i in range(1, len(sequence)):  # We already made sure sequence[0] is False
-            #     if sequence[i]:
-            #         reversals += 1
-            #         sequence = ~sequence
-            # 
-            # # Assuming the sequence started with False (not seen),
-            # # then for all all even reversals (0, 2) the direction is going down <- the direction is -1
-            # # for all odd reversals (1) the direction is going up <- the modulus is 1
-            # direction = (reversals % 2) * 2 - 1
-            # # If the assumption above is not valid, then we want to flip -1 and 1,
-            # # so that going up is represented by 1 and going down is represented by 0
-            # if starts_with_true:
-            #     direction = -direction
-    
-            
-            # Vectorized version
-            # Performance using np.diff: 0.096 per 10000 runs
-            # reversals = np.count_nonzero(np.diff(sequence))
-            # Performance using bitwise XOR: 0.040 per 10000 runs
-            reversals = np.count_nonzero(sequence[1:] ^ sequence[:-1])  # bitwise XOR
-            if sequence[0]:
-                direction = 1 - (reversals % 2) * 2
-            else:
-                direction = (reversals % 2) * 2 - 1
-            
-    
-            reversals = np.cumsum(sequence[1:] ^ sequence[:-1])  # bitwise XOR
-            reversals = np.concatenate( [[0], reversals] )
-            # reversals = np.cumsum(np.diff(sequence, prepend=sequence[0]))
-    
-            if step is not None and len(step) > 0:
-                reversals = DoubleStaircaseStrategy._process_repeated_staircase(reversals, len(step))
-    
-            # if sequence[0]:
-            #     direction = 1 - (reversals % 2) * 2
-            # else:
-            #     direction = (reversals % 2) * 2 - 1
-    
-            # direction = sequence * 2 - 1
-    
-            return reversals
-        """
-
             # New solution writing this as a recursion problem
             # 0.8322514 sec for 10000 iterations
 
