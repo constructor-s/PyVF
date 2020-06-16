@@ -21,6 +21,8 @@ along with PyVF. If not, see <https://www.gnu.org/licenses/>.
 """
 
 from unittest import TestCase
+
+import pyvf.strategy.Model as sModel
 from pyvf import strategy
 import numpy as np
 import timeit
@@ -43,7 +45,7 @@ class TestStrategy(TestCase):
         ])
 
     def test_constant_model(self):
-        model = strategy.ConstantModel(eval_pattern=strategy.PATTERN_SINGLE, mean=30, std=4)
+        model = sModel.ConstantModel(eval_pattern=strategy.PATTERN_SINGLE, mean=30, std=4)
         print("Mean:", model.get_mean())
         print("StD:", model.get_std())
         print(repr(strategy.PATTERN_P24D2))
@@ -51,7 +53,7 @@ class TestStrategy(TestCase):
         print(strategy.PATTERN_P24D2[0][strategy.XOD])
 
     def test_heijl1987(self):
-        model = strategy.Heijl1987p24d2Model(eval_pattern=strategy.PATTERN_P24D2, age=0)
+        model = sModel.Heijl1987p24d2Model(eval_pattern=strategy.PATTERN_P24D2, age=0)
         print("Mean:", model.get_mean())
         print("StD:", model.get_std())
 
@@ -73,9 +75,9 @@ class TestStrategy(TestCase):
         print(np.sort(stim_arr, axis=0, order=strategy.TSRESP))
 
     def test_staircase_threshold(self):
-        model = strategy.ConstantModel(eval_pattern=strategy.PATTERN_SINGLE,
-                                       mean=30,
-                                       std=4)  # std no effect in this case
+        model = sModel.ConstantModel(eval_pattern=strategy.PATTERN_SINGLE,
+                                     mean=30,
+                                     std=4)  # std no effect in this case
         s = strategy.DoubleStaircaseStrategy(
             pattern=strategy.PATTERN_SINGLE,
             blindspot=[],

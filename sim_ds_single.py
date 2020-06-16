@@ -29,8 +29,10 @@ along with PyVF. If not, see <https://www.gnu.org/licenses/>.
 """
 
 from pyvf.strategy import *
-import logging
+from pyvf.strategy.Model import ConstantModel
+from pyvf.strategy.Responder import PerfectResponder
 
+import logging
 _logger = logging.getLogger(__name__)
 
 
