@@ -23,7 +23,7 @@ This performs a simulation of testing a range of true thresholds of a perfect re
 ```
 git clone https://github.com/constructor-s/PyVF.git
 cd PyVF
-python sim_ds_single.py
+python sim_ds_single_perfect.py
 ```
 
 ## Select References
