@@ -106,34 +106,55 @@ def sim_ds_single_offsets():
 
 
 def sim_ds_single_turpin_2003_fig5():
-    true_thresholds = np.arange(0, 40.1, 0.5)
-    starting_thresholds = np.array([10, 20, 30])
+    true_thresholds = np.arange(0, 40.1, 1.0)
+    starting_thresholds = np.array([30])
+    N = 100
     repeat_threshold = 4
+
     data_collection = []
     for i, true_threshold in enumerate(true_thresholds):
         data_collection.append([])
         for j, starting_threshold in enumerate(starting_thresholds):
-            data = simPerfectSingleStaircase(true_threshold=true_threshold, starting_threshold=starting_threshold,
+            data_collection[i].append([])
+            for k in range(N):
+                data = simPerfectSingleStaircase(true_threshold=true_threshold, starting_threshold=starting_threshold,
                                              repeat_threshold=repeat_threshold)
-            data_collection[i].append(data)
+                data_collection[i][j].append(data)
+
     # Calculate how many presentations did it take for each test condition
-    presentations = [[len(x[0]) for x in l] for l in data_collection]
+    presentations = [[[len(x[0]) for x in k] for k in j] for j in data_collection]
     presentations = np.array(presentations)
-    final_estimate = [[x[1][0] for x in l] for l in data_collection]
+    final_estimate = [[[x[1][0] for x in k] for k in j] for j in data_collection]
     final_estimate = np.array(final_estimate)
+
+    return locals()
+
+
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
+
+    # data_collection = sim_ds_single_offsets()
+    sim = sim_ds_single_turpin_2003_fig5()
 
     # Plotting
     import matplotlib.pyplot as plt
 
+    starting_thresholds = sim["starting_thresholds"]
+    true_thresholds = sim["true_thresholds"]
+    presentations = sim["presentations"]
+    repeat_threshold = sim["repeat_threshold"]
+    final_estimate = sim["final_estimate"]
+    N = sim["N"]
+
     for j, starting_threshold in enumerate(starting_thresholds):
         fig, ax = plt.subplots(2, 1, sharex='col', sharey='row', figsize=(8.5, 11))
-        ax[0].plot(true_thresholds, presentations[:, j], 'k.-')
+        ax[0].plot(true_thresholds, presentations[:, j].mean(axis=-1), 'k.-')
         ax[0].set_ylabel("number of presentations")
         ax[0].set_yticks(np.arange(0, 16.1, 2))
         ax[0].grid(True)
         ax[0].legend([f"4-2 staircase, retest threshold = {repeat_threshold} dB"])
 
-        ax[1].plot(true_thresholds, final_estimate[:, j] - true_thresholds, 'k.-')
+        ax[1].plot(true_thresholds, final_estimate[:, j].mean(axis=-1) - true_thresholds, 'k.-')
         ax[1].set_ylabel("error (dB)")
         ax[1].set_yticks(np.arange(-20, 20.1, 5))
         ax[1].set_xlabel("Input threshold (dB)")
@@ -141,14 +162,5 @@ def sim_ds_single_turpin_2003_fig5():
         ax[1].grid(True)
         ax[1].set_aspect('equal', adjustable='datalim')
 
-        fig.suptitle(f"Starting estimate = {starting_threshold}dB, FP = 15%, FN = 15%")
+        fig.suptitle(f"Starting estimate = {starting_threshold}dB, FP = 15%, FN = 15%, N = {N}")
         fig.savefig(f"sim_ds_single_{starting_threshold}.pdf")
-
-    return data_collection
-
-
-if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
-
-    data_collection = sim_ds_single_offsets()
-    data_collection = sim_ds_single_turpin_2003_fig5()
