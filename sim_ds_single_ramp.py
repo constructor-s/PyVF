@@ -121,30 +121,38 @@ def sim_ds_single_turpin_2003_fig5():
                                              repeat_threshold=repeat_threshold)
                 data_collection[i][j].append(data)
 
-    # Calculate how many presentations did it take for each test condition
-    presentations = [[[len(x[0]) for x in k] for k in j] for j in data_collection]
-    presentations = np.array(presentations)
-    final_estimate = [[[x[1][0] for x in k] for k in j] for j in data_collection]
-    final_estimate = np.array(final_estimate)
-
     return locals()
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.WARNING)
 
     # data_collection = sim_ds_single_offsets()
+    import timeit
+    tic = timeit.default_timer()
     sim = sim_ds_single_turpin_2003_fig5()
+    print(timeit.default_timer() - tic)
+    # Baseline: 16.2319718 sec, 15.768244 sec with logging set to WARNING
+    # Baseline profile: get_staircase_stats total time: 5020 ms, 24%
+    #                   get_stimulus_threshold total time: 13657 ms, 65.3%
+    # Optimized: 11.2195861 sec with logging set to WARNING
+    # Optimized profile: get_staircase_stats total time: 2003 ms, 12.5%
+    #                    get_stimulus_threshold total time: 10237 ms, 63.7%
 
     # Plotting
     import matplotlib.pyplot as plt
 
     starting_thresholds = sim["starting_thresholds"]
     true_thresholds = sim["true_thresholds"]
-    presentations = sim["presentations"]
     repeat_threshold = sim["repeat_threshold"]
-    final_estimate = sim["final_estimate"]
     N = sim["N"]
+    data_collection = sim["data_collection"]
+
+    # Calculate how many presentations did it take for each test condition
+    presentations = [[[len(x[0]) for x in k] for k in j] for j in data_collection]
+    presentations = np.array(presentations)
+    final_estimate = [[[x[1][0] for x in k] for k in j] for j in data_collection]
+    final_estimate = np.array(final_estimate)
 
     for j, starting_threshold in enumerate(starting_thresholds):
         fig, ax = plt.subplots(2, 1, sharex='col', sharey='row', figsize=(8.5, 11))

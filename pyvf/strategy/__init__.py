@@ -356,25 +356,21 @@ class DoubleStaircaseStrategy(Strategy):
         independent from the initial series, both of these cases should be reset to zero reversals at the start of the
         repetition
         """
-        if len(sequence) == 0:
-            return np.array([]), np.array([])
-        elif len(sequence) == 1:
-            return np.array([_rev_start]), np.array([_rep_start])
-        else:
-            sequence = np.array(sequence, dtype=np.bool)
+        if len(sequence) >= 2:
+            # sequence = np.array(sequence, dtype=np.bool)
 
-            if force_terminate is None:
-                force_terminate = np.zeros_like(sequence, dtype=np.bool)
-            else:
-                assert len(force_terminate) == len(sequence)
-                force_terminate = np.array(force_terminate, dtype=np.bool)
+            # if force_terminate is None:
+            #     force_terminate = np.zeros_like(sequence, dtype=np.bool)
+            # else:
+                # assert len(force_terminate) == len(sequence)
+                # force_terminate = np.array(force_terminate, dtype=np.bool)
 
             # New solution writing this as a recursion problem
             # 0.8322514 sec for 10000 iterations
 
             # General case
             # This is the key of recursion
-            if force_terminate[0] or (step is not None and _rev_start == len(step)):  # Current staircase terminated
+            if (step is not None and _rev_start == len(step)) or (force_terminate is not None and force_terminate[0]):  # Current staircase terminated
                 new_rev_start = 0
                 new_rep_start = _rep_start + 1
             elif sequence[1] != sequence[0]:  # Next response is different from current -> there is a reversal
@@ -384,19 +380,47 @@ class DoubleStaircaseStrategy(Strategy):
                 new_rev_start = _rev_start
                 new_rep_start = _rep_start
 
-            rest_reversals, rest_repeats = DoubleStaircaseStrategy.get_staircase_stats(
-                sequence=sequence[1:], step=step, force_terminate=force_terminate[1:],
-                _rev_start=new_rev_start, _rep_start=new_rep_start
-            )
-            reversals = [_rev_start]
-            reversals.extend(rest_reversals)
-            repeats = [_rep_start]
-            repeats.extend(rest_repeats)
+            # rest_reversals, rest_repeats = DoubleStaircaseStrategy.get_staircase_stats(
+            #     sequence=sequence[1:], step=step, force_terminate=force_terminate[1:],
+            #     _rev_start=new_rev_start, _rep_start=new_rep_start
+            # )
+            # reversals = [_rev_start]
+            # reversals.extend(rest_reversals)
+            # repeats = [_rep_start]
+            # repeats.extend(rest_repeats)
+            # return np.array(reversals), np.array(repeats)
+
             # reversals = np.empty_like(sequence, dtype=np.int32)
             # reversals[0] = _rev_start
             # reversals[1:] = rest_reversals
+            # repeats = np.empty_like(sequence, dtype=np.int32)
+            # repeats[0] = _rep_start
+            # repeats[1:] = rest_repeats
+            # return reversals, repeats
 
-            return np.array(reversals), np.array(repeats)
+            rest = DoubleStaircaseStrategy.get_staircase_stats(
+                sequence=sequence[1:], step=step,
+                force_terminate=force_terminate[1:] if force_terminate is not None else None,
+                _rev_start=new_rev_start, _rep_start=new_rep_start
+            )
+            ret = np.empty( (2, len(sequence)) , dtype=np.int32)
+            ret[0, 0] = _rev_start
+            ret[1, 0] = _rep_start
+            ret[:, 1:] = rest
+            # Faster than concatenate
+            # %timeit -n 1000 np.concatenate( (((2,),(2,)), a) , axis=1)
+            # -> 4.26 µs ± 1.17 µs per loop (mean ± std. dev. of 7 runs, 1000 loops each)
+            # %timeit -n 10000 b = np.empty((2, 11)); b[0, 0] = 2; b[1, 0] = 2; b[:, 1:] = a
+            # -> 2.03 µs ± 566 ns per loop (mean ± std. dev. of 7 runs, 10000 loops each)
+
+            return ret
+        elif len(sequence) == 1:
+            # return np.array([_rev_start]), np.array([_rep_start])  # 1.65 µs ± 48.6 ns per loop (mean ± std. dev. of 7 runs, 1000000 loops each)
+            return np.array( ((_rev_start, ), (_rep_start, )) )  # 819 ns ± 21.7 ns per loop (mean ± std. dev. of 7 runs, 1000000 loops each)
+        else:  # len(sequence) == 0:
+            # return np.array([]), np.array([])  # 1.78 µs ± 261 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
+            return np.empty((2, 0), dtype=np.int32)  # 699 ns ± 30.8 ns per loop (mean ± std. dev. of 7 runs, 1000000 loops each)
+
 
     @staticmethod
     def _process_repeated_staircase(x, n):

@@ -128,6 +128,34 @@ class TestStrategy(TestCase):
 
         # print(timeit.timeit(lambda: strategy.DoubleStaircaseStrategy.get_staircase_stats(sequence, step=(4, 2)), number=10000))
 
+    def test_staircase_stats_profile(self):
+        """
+        How to use line profiler in a script?
+        https://stackoverflow.com/a/43377717/6610243
+
+        Returns
+        -------
+
+        """
+        sequence = [0, 0, 1, 1, 1, 0, 0, 0, 1, 0]
+        force_terminate = [0, 1, 0, 0, 0, 0, 1, 0, 0, 0]
+
+        from line_profiler import LineProfiler
+        # Baseline: Total time: 2.07796 s s for N = 10000
+        # Numpy: Total time: 2.11567 s
+        # Combined 2 x n array: Total time: 1.5246 s
+        # Total time: 1.19332 s
+        # Remove creating temporary termination array for terminate == None: Total time: 1.19105 s
+        # Switching 0 and 1 cases: Total time: 1.14139 s
+        # Switching to: >2, 1, 0: Total time: 1.10141 s
+
+        lp = LineProfiler()
+        lp.add_function(strategy.DoubleStaircaseStrategy.get_staircase_stats)
+        lp_wrapper = lp(lambda *args, **kwargs: [strategy.DoubleStaircaseStrategy.get_staircase_stats(*args, **kwargs) for _ in range(10000)])
+        lp_wrapper(sequence, step=(4, 2), force_terminate=force_terminate)
+        with open("test_staircase_stats_profile.py", "w") as f:
+            lp.print_stats(stream=f, output_unit=1e-3)
+
     def test_process_repeated_staircase(self):
         n = 2
         x = [0, 1, 2, 2, 3, 4]
