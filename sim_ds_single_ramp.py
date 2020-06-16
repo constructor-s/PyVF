@@ -138,6 +138,9 @@ if __name__ == '__main__':
     # Optimized: 11.2195861 sec with logging set to WARNING
     # Optimized profile: get_staircase_stats total time: 2003 ms, 12.5%
     #                    get_stimulus_threshold total time: 10237 ms, 63.7%
+    #                    pos_ramp: 1340 ms, 8.3%
+    # Optimized pos_ramp: 10.584605 sec with logging set to WARNING
+    # Optimized profile: pos_ramp: 249 ms, 1.7%
 
     # Plotting
     import matplotlib.pyplot as plt

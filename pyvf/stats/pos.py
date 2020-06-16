@@ -18,21 +18,29 @@ def pos_ramp(x, center, yl, yr, width):
     as Determined by Computer Simulation. Investigative Ophthalmology and Visual Science, 44(11), 4787–4795.
     https://doi.org/10.1167/iovs.03-0023
     """
-    # Coerce x to array type for vector code
-    x_ = np.array(x)
-
     # First calculate if fp and fn are both zero
     yc = 0.5  # by definition the center is p = 0.5
 
     xl = center - 1.0 * (yc - yl) / (yr - yl) * width  # x left of ramp
     xr = xl + width
-    # Vector code
-    p = np.empty_like(x_, dtype=np.float32)
-    p[x_ <= xl] = yl
-    p[(xl < x_) & (x_ <= xr)] = yl + (x_[(xl < x_) & (x_ <= xr)] - xl) * (yr - yl) * 1.0 / width
-    p[x_ > xr] = yr
 
-    if type(x) is not type(p) and np.ndim(x) == 0:
-        return p.item()
-    else:
+    # if np.isscalar(x):
+    try:
+        # Optimized code for scalar
+        if x <= xl:
+            return yl
+        elif x > xr:
+            return yr
+        else:
+            return yl + (x - xl) * (yr - yl) * 1.0 / width
+    # else:
+    except (ValueError, TypeError):
+        # Vector code
+        # Coerce x to array type for vector code
+        x_ = np.asanyarray(x)
+        p = np.empty_like(x_, dtype=np.float32)
+        p[x_ <= xl] = yl
+        p[(xl < x_) & (x_ <= xr)] = yl + (x_[(xl < x_) & (x_ <= xr)] - xl) * (yr - yl) * 1.0 / width
+        p[x_ > xr] = yr
+
         return p
