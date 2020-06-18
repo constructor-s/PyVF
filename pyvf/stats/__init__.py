@@ -23,6 +23,7 @@ along with PyVF. If not, see <https://www.gnu.org/licenses/>.
 import scipy.stats
 import numpy as np
 import operator
+import warnings
 
 
 class rv_histogram2(scipy.stats.rv_histogram):
@@ -98,8 +99,7 @@ class rv_histogram2(scipy.stats.rv_histogram):
 
         """
         # Multiplied by a scalar
-        # This is preferred over np.scalar. See https://numpy.org/doc/stable/reference/generated/numpy.isscalar.html
-        if np.ndim(rhs) == 0:
+        if np.isscalar(rhs):
             height, bins = self._histogram
             return rv_histogram2(histogram=(op(height, rhs), bins))
 
@@ -108,10 +108,12 @@ class rv_histogram2(scipy.stats.rv_histogram):
             try:
                 # noinspection PyProtectedMember
                 r_height, r_bins = rhs._histogram
+                r_height = np.asanyarray(r_height)
             except (AttributeError, ValueError) as e:
-                raise TypeError(f"unsupported operand type(s) for +: '{type(self)}' and '{type(rhs)}'")
+                raise TypeError(f"unsupported operand type(s) for {op}: '{type(self)}' and '{type(rhs)}'")
 
             height, bins = self._histogram
+            height = np.asanyarray(height)
 
             if not np.allclose(bins, r_bins):  # TODO: Implement multiplication between different bins
                 raise ValueError("bins must match between two histograms")
@@ -139,3 +141,99 @@ class rv_histogram2(scipy.stats.rv_histogram):
         # self.pdf(bins[-1]) == 0 based on the base rv_histogram implementation
         height_normalized = height * 1.0 / height.sum()
         return rv_histogram2(histogram=(height_normalized, bins))
+
+    def refined(self, n):
+        """
+        Refine the bin spacing by n fold (each interval is uniformed divided into n intervals).
+        Heights are correspondingly adjusted by 1/n.
+
+        Parameters
+        ----------
+        n : int
+
+        Returns
+        -------
+        new_histogram : rv_histogram2
+            A new histogram with the refined spacing
+        """
+        height, bins = self._histogram
+
+        # Vectorized magic...
+        delta = np.diff(bins) * 1.0 / n
+        delta = delta.reshape( (-1, 1) )
+        grid = np.arange(n).reshape( (1, -1) )
+        Delta = delta.dot(grid)
+        new_bins = bins[:-1].reshape( (-1, 1) )
+        new_bins = new_bins + Delta
+        new_bins = new_bins.ravel()
+        new_bins = np.concatenate( (new_bins, bins[-1:]) )
+
+        new_height = height * 1.0 / n
+        new_height = np.repeat(new_height, n)
+
+        return rv_histogram2(histogram=(new_height, new_bins))
+
+    def roll(self, shift, fill_value=np.nan):
+        """
+        Shift the heights with respect to the bins
+
+        Parameters
+        ----------
+        shift : int
+            Number of bins to roll over.
+        fill_value : float
+            Value to fill the new empty slots after shifting
+
+        Notes
+        ---------------
+        shift is the number of bins to roll over (units of indices), not the unit that bins are in
+
+        The fill_value is used to replace heights, which are not guaranteed to be normalized.
+        Get a normalized() version first if that is the expected behavior.
+
+        Returns
+        -------
+        ret : rv_histogram2
+            A new histogram
+
+        See Also
+        ------------
+        np.roll
+        """
+        height, bins = self._histogram
+        # shift heights, bins remain
+        height = np.roll(height, shift=shift)
+        # np.roll is circular, we need to reset the circularly shifted values
+        if shift > 0:
+            height[:shift] = fill_value
+        else:
+            height[shift:] = fill_value
+        return rv_histogram2(histogram=(height, bins))
+
+    def mode(self, warn=True):
+        """
+
+        Returns
+        -------
+        mode : float
+            The center of the (first) bin that has the highest height.
+            If there are multiple bins, raise a warning.
+        """
+        height, bins = self._histogram
+        if warn:
+            i = np.count_nonzero(height == height.max())
+            if i > 1:
+                warnings.warn(f"{i} > 1 bins have the same height that is the maximum height", RuntimeWarning)
+        i = np.argmax(height)
+        mode_left = bins[i]
+        mode_right = bins[i+1]
+        mode = 0.5 * (mode_left + mode_right)
+        return mode
+
+    @property
+    def height(self):
+        return self._histogram[0]
+
+    @property
+    def bins(self):
+        return self._histogram[1]

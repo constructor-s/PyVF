@@ -23,6 +23,12 @@ along with PyVF. If not, see <https://www.gnu.org/licenses/>.
 
 import numpy as np
 import logging
+from operator import mul
+from functools import reduce
+
+from pyvf.stats import rv_histogram2
+from pyvf.stats.pos import pos_ramp
+
 try:
     import importlib.resources as pkg_resources
 except ImportError:
@@ -124,14 +130,14 @@ class Strategy:
 
     Steps for using the strategy class
     1. __init__()
-    2. stimulus, threshold = get_stimulus_threshold(data1)
+    2. stimulus, center = get_stimulus_threshold(data1)
     2. while stimulus is not None:
     3.     # Test the stimulus and append to data1
-    4.     stimulus, threshold = get_stimulus_threshold(data1)
+    4.     stimulus, center = get_stimulus_threshold(data1)
 
     data1 : [Stimulus] is a list of Stimuli response records
     stimulus : Stimulus is the next stimulus to be presented to the responder
-    threshold : [float] an array of size M, is the current best estimation of threshold (M is the number of SAP locations)
+    center : [float] an array of size M, is the current best estimation of center (M is the number of SAP locations)
 
     Design choice: should test_data be a field of this class? Trying to keep this class stateless, which should be
     perfectly fine on modern computers? Is there any process in this that can be vectorized for significant performance
@@ -164,24 +170,36 @@ class Strategy:
     def clip_stimulus_intensity(self, x):
         return np.clip(x, self.param['min_db'], self.param['max_db'])
 
+    def get_new_stimulus_at(self, db, location):
+        return Stimulus(
+            xod=location[XOD],
+            yod=location[YOD],
+            loc=location[LOC],
+            size=location[SIZE],
+            threshold=self.clip_stimulus_intensity(db),
+            response=STIMULUS_NO_RESPONSE,
+            tsdisp=STIMULUS_TS_NONE,
+            tsresp=STIMULUS_TS_NONE
+        )
+
 class DoubleStaircaseStrategy(Strategy):
-    def __init__(self, pattern, blindspot, model, step=(4, 2), threshold_func=None, repeat_threshold=4.0, *args, **kwargs):
+    def __init__(self, pattern, blindspot, model, step=(4, 2), threshold_func=None, repeat_threshold=4.0, test_sequence=None, *args, **kwargs):
         """
 
         Parameters
         ----------
         step
-        threshold_func : if not specified, default to DoubleStaircaseStrategy.get_last_seen_threshold or the mean of the two determinations (each determined by the last seen threshold)
+        threshold_func : if not specified, default to DoubleStaircaseStrategy.get_last_seen_threshold or the mean of the two determinations (each determined by the last seen center)
         repeat_threshold : float. This is to implement the behavior of HFA Full Threshold: If the difference between the first determination and the expected normal value is more than 4 dB, repeat the staircase at the new estimate.
         args
         kwargs
         """
-        super().__init__(pattern, blindspot, model, *args, **kwargs)
+        super().__init__(pattern=pattern, blindspot=blindspot, model=model, *args, **kwargs)
         self.param["step"] = step
-        self.param["repeat_threshold"] = repeat_threshold  # Repeat is currently not implemented
+        self.param["repeat_threshold"] = repeat_threshold
 
-        self.param["test_sequence"] = np.arange(len(self.param['pattern']))
-        assert len(self.param['pattern']) == len(np.unique(self.param["test_sequence"]))
+        self.param["test_sequence"] = test_sequence if test_sequence is not None else np.arange(len(self.param['pattern']))
+        assert len(self.param["pattern"]) == len(np.unique(self.param["test_sequence"]))
 
         if threshold_func is None:
             threshold_func = DoubleStaircaseStrategy.get_last_seen_threshold_or_mean
@@ -207,9 +225,9 @@ class DoubleStaircaseStrategy(Strategy):
 
         Returns
         -------
-        None, threshold if there is no more to be done
-        Stimulus, threshold if the next stimulus is selected to be stimulus
-        threshold is a list of length M of current threshold estimates
+        None, center if there is no more to be done
+        Stimulus, center if the next stimulus is selected to be stimulus
+        center is a list of length M of current center estimates
         """
         data = Stimulus.to_numpy(data)
         stimulus = None  # The next stimulus to be presented
@@ -220,16 +238,6 @@ class DoubleStaircaseStrategy(Strategy):
         for m in self.param["test_sequence"]:
             # Convenient lambda function for generating next stimulus
             location = self.param["pattern"][m]
-            get_new_stimulus_at = lambda db: Stimulus(
-                xod=location[XOD],
-                yod=location[YOD],
-                loc=location[LOC],
-                size=location[SIZE],
-                threshold=self.clip_stimulus_intensity(db),
-                response=STIMULUS_NO_RESPONSE,
-                tsdisp=STIMULUS_TS_NONE,
-                tsresp=STIMULUS_TS_NONE
-            )
 
             # Get subset of relevant data_m
             data_m = data[data[LOC] == m]  # type: np.ndarray
@@ -237,7 +245,7 @@ class DoubleStaircaseStrategy(Strategy):
             data_m = np.sort(data_m, axis=0, order=TSRESP)
             # Extract the response sequence column, e.g. [0, 0, 1, 0, 1, 0, 0, 1]
             response_sequence = data_m[RESPONSE]
-            # We assume no error in the trial threshold implementation,
+            # We assume no error in the trial center implementation,
             # and only look at the trend of seen/not seen to determine staircase state
             # e.g. reversals_list = [0, 0, 1, 2, 0, 1, 1, 2] where in this example,
             # after the first four responses there is a repeated double determination
@@ -260,12 +268,12 @@ class DoubleStaircaseStrategy(Strategy):
             #     #      not seen = 0 -> -1
             #     direction = response_sequence[-1] * 2 - 1
 
-            # Calculate threshold, and, at the same time, produce a stimulus if necessary
+            # Calculate center, and, at the same time, produce a stimulus if necessary
             # If no test has been done yet and we do not already know what to test next (stimulus is None)
             if len(data_m) == 0:
                 threshold[m] = self.param["model"].get_mean()[m]
                 if stimulus is None:
-                    stimulus = get_new_stimulus_at(threshold[m])
+                    stimulus = self.get_new_stimulus_at(threshold[m], location=location)
                 else:
                     pass
 
@@ -277,7 +285,7 @@ class DoubleStaircaseStrategy(Strategy):
                 # I don't know if this is a standard implementation. The 0.01 dB is chosen arbitrarily.
                 threshold[m] = self.param["max_db"] + 0.01
                 if repeats_list[-1] == 0 and abs(threshold[m] - self.param["model"].get_mean()[m]) > self.param["repeat_threshold"]:
-                    stimulus = get_new_stimulus_at(threshold[m])
+                    stimulus = self.get_new_stimulus_at(threshold[m], location=location)
                 else:
                     pass  # We are done here
 
@@ -289,7 +297,7 @@ class DoubleStaircaseStrategy(Strategy):
                 # I don't know if this is a standard implementation. The 0.01 dB is chosen arbitrarily.
                 threshold[m] = self.param["min_db"] - 0.01
                 if repeats_list[-1] == 0 and abs(threshold[m] - self.param["model"].get_mean()[m]) > self.param["repeat_threshold"]:
-                    stimulus = get_new_stimulus_at(threshold[m])
+                    stimulus = self.get_new_stimulus_at(threshold[m], location=location)
                 else:
                     pass  # We are done here
 
@@ -304,7 +312,7 @@ class DoubleStaircaseStrategy(Strategy):
                 # this location has finished all staircase reversals
                 threshold[m] = self.param["threshold_func"](self, data_m)
                 if repeats_list[-1] == 0 and abs(threshold[m] - self.param["model"].get_mean()[m]) > self.param["repeat_threshold"]:
-                    stimulus = get_new_stimulus_at(threshold[m])
+                    stimulus = self.get_new_stimulus_at(threshold[m], location=location)
                 else:
                     pass  # We are done here
 
@@ -315,13 +323,13 @@ class DoubleStaircaseStrategy(Strategy):
 
                 # if no next stimulus has been picked yet
                 if stimulus is None:
-                    # Get last threshold and apply the right step size
+                    # Get last center and apply the right step size
                     direction = +1 if data_m[-1][RESPONSE] == STIMULUS_SEEN else -1
 
                     threshold[m] = data_m[-1][THRESHOLD] + self.param["step"][reversals_list[-1]] * direction
                     threshold[m] = self.clip_stimulus_intensity(threshold[m])
 
-                    stimulus = get_new_stimulus_at(db=threshold[m])
+                    stimulus = self.get_new_stimulus_at(db=threshold[m], location=location)
                 else:
                     pass  # The algorithm already has another stimulus to test, nothing to do here
 
@@ -465,7 +473,7 @@ class DoubleStaircaseStrategy(Strategy):
         data_m[THRESHOLD] are trial thresholds
         data_m[RESPONSE] are response results
 
-        If all responses are not seen, then return the last threshold.
+        If all responses are not seen, then return the last center.
         If the data_m list is empty, then return nan
 
         Parameters
@@ -474,8 +482,8 @@ class DoubleStaircaseStrategy(Strategy):
 
         Returns
         -------
-        threshold : float
-            last seen threshold
+        center : float
+            last seen center
 
         """
         if len(data_m) == 0:
@@ -492,7 +500,7 @@ class DoubleStaircaseStrategy(Strategy):
     def get_last_seen_threshold_or_mean(self, data_m):
         # Extract the response sequence column, e.g. [0, 0, 1, 0, 1, 0, 0, 1]
         response_sequence = data_m[RESPONSE]
-        # We assume no error in the trial threshold implementation,
+        # We assume no error in the trial center implementation,
         # and only look at the trend of seen/not seen to determine staircase state
         # e.g. reversals_list = [0, 0, 1, 2, 0, 1, 1, 2] where in this example,
         # after the first four responses there is a repeated double determination
@@ -508,3 +516,125 @@ class DoubleStaircaseStrategy(Strategy):
                                                                                    force_terminate=force_terminate)
         thresholds = [self.get_last_seen_threshold(data_m[repeats_list == i]) for i in np.unique(repeats_list)]
         return np.mean(thresholds)
+
+
+class ZestStrategy(Strategy):
+    def __init__(self, pattern, blindspot, model, term_std, test_sequence=None, *args, **kwargs):
+        """
+        Zippy Estimation by Sequential Testing (ZEST)
+
+        Parameters
+        ----------
+        pattern
+        blindspot
+        model
+        term_std : float, termination cutoff standard deviation
+        args
+        kwargs
+        """
+        super().__init__(pattern=pattern, blindspot=blindspot, model=model, *args, **kwargs)
+
+        self.param["test_sequence"] = test_sequence if test_sequence is not None else np.arange(len(self.param['pattern']))
+        assert len(self.param["pattern"]) == len(np.unique(self.param["test_sequence"]))
+
+        self.param["term_std"] = term_std
+        self.param["normal2abnormal_ratio"] = 4.0 / 1.0
+
+        # Parameters determining shape of probability of seeing curve
+        self.param["pos_fp"] = 0.05
+        self.param["pos_fn"] = 0.05
+        self.param["pos_width"] = 4.0
+
+        # Initialize
+        import pyvf.resources.turpin2003 as turpin2003
+        with pkg_resources.open_text(turpin2003, "abnormal_pdf.csv") as f:
+            abnormal_bins, abnormal_height = np.loadtxt(f, dtype=np.float32, delimiter=",", skiprows=0).T
+            abnormal_bins = np.concatenate( (abnormal_bins - 0.5, [abnormal_bins[-1] + 0.5]) )
+        with pkg_resources.open_text(turpin2003, "normal_pdf.csv") as f:
+            normal_bins, normal_height = np.loadtxt(f, dtype=np.float32, delimiter=",", skiprows=0).T
+            normal_bins = np.concatenate((normal_bins - 0.5, [normal_bins[-1] + 0.5]))
+        assert np.allclose(abnormal_bins, normal_bins), "The bins of abnormal and normal PDFs must match"
+        assert np.allclose(np.sum(abnormal_height), np.sum(normal_height), rtol=0.01, atol=0.01), "Input PDFs must sum to 1"
+
+        # Fields related to probabilistic distribution
+        self.refine_n = 10
+        self.hist_abnormal = rv_histogram2(histogram=(abnormal_height, abnormal_bins)).refined(self.refine_n)
+        self.hist_normal   = rv_histogram2(histogram=(  normal_height,   normal_bins)).refined(self.refine_n)
+        self.coef_abnormal = 1 / (1.0 + self.param["normal2abnormal_ratio"])
+        self.coef_normal   = 1 - self.coef_abnormal
+        self.center_normal = self.hist_normal.mode()
+        self.epsilon = self.hist_normal.height.min()  # 1e-3
+
+    def get_stimulus_threshold(self, data):
+        data = Stimulus.to_numpy(data)
+        stimulus = None  # The next stimulus to be presented
+        threshold = np.full(len(self.param['pattern']), np.nan)  # The current best estimate of point thresholds
+
+        model_mean = self.param["model"].get_mean()
+
+        # Use m = 1 ... M to index SAP locations
+        # right now there is no randomization... just use the test_sequence to rank stimulus test order
+        for m in self.param["test_sequence"]:
+            # Convenient lambda function for generating next stimulus
+            location = self.param["pattern"][m]
+
+            # Get subset of relevant data_m
+            data_m = data[data[LOC] == m]  # type: np.ndarray
+
+            response_sequence = data_m[RESPONSE]
+            threshold_sequence = data_m[THRESHOLD]
+
+            init_pdf = (self.coef_abnormal * self.hist_abnormal +
+                        self.coef_normal * self.hist_normal.roll(shift=int(round((model_mean[m] - self.center_normal) * self.refine_n)),
+                                                                 fill_value=self.epsilon))
+            if len(data_m) == 0:
+                threshold[m] = init_pdf.mode()
+                if stimulus is None:
+                    stimulus = self.get_new_stimulus_at(db=init_pdf.mean(), location=location)
+            else:
+                trial_height = (ZestStrategy.trial2pos_ramp(x=self.hist_normal.bins[:-1],
+                                                            center=c,
+                                                            fn=self.param["pos_fn"], fp=self.param["pos_fp"],
+                                                            width=self.param["pos_width"],
+                                                            seen=s) for c, s in zip(threshold_sequence, response_sequence))
+                trial_height = reduce(mul, trial_height)
+                trial_pdf = rv_histogram2(histogram=(trial_height, self.hist_normal.bins))
+                updated_pdf = init_pdf * trial_pdf  # type: rv_histogram2
+
+                threshold[m] = updated_pdf.mode()
+                # Another implementation is trial_pdf.mode() as in
+                # Watson, A. B., Pelli, D. G., & others. (1979). The QUEST staircase procedure. Applied Vision Association Newsletter, 14, 6–7.
+                # which is not biased by the shape of init_pdf
+
+                if stimulus is None:
+                    # Check termination
+                    if updated_pdf.std() < self.param["term_std"]:
+                        pass  # Terminated
+                    else:
+                        stimulus = self.get_new_stimulus_at(db=updated_pdf.mean(), location=location)
+
+        return stimulus, threshold
+
+    @staticmethod
+    def trial2pos_ramp(x, center, fn, fp, width, seen):
+        """
+
+        Parameters
+        ----------
+        x : array_like
+            Evaluation points
+
+        Returns
+        -------
+        y : array_like
+
+        """
+        yl = 1 - fn
+        yr = fp
+
+        y = pos_ramp(x=x, center=center, yl=yl, yr=yr, width=width)
+
+        if seen == STIMULUS_SEEN:
+            return 1 - y
+        else:  # STIMULUS_NOT_SEEN
+            return y

@@ -36,21 +36,8 @@ import logging
 _logger = logging.getLogger(__name__)
 
 
-def simPerfectSingleStaircase(true_threshold, starting_threshold, repeat_threshold=4):
+def simStrategy(true_threshold, model, strategy):
     responder = RampResponder(true_threshold=[true_threshold], fp=0.15, fn=0.15)
-    model = ConstantModel(eval_pattern=PATTERN_SINGLE,
-                          mean=starting_threshold,
-                          std=4)  # std no effect in this case
-
-    strategy = DoubleStaircaseStrategy(
-        pattern=PATTERN_SINGLE,
-        blindspot=[],
-        model=model,
-        step=(4, 2),
-        threshold_func=DoubleStaircaseStrategy.get_last_seen_threshold_or_mean,
-        repeat_threshold=repeat_threshold
-    )
-
     data = []
     stimulus, threshold = strategy.get_stimulus_threshold(data)
     counter = 0
@@ -65,7 +52,7 @@ def simPerfectSingleStaircase(true_threshold, starting_threshold, repeat_thresho
 
         stimulus, threshold = strategy.get_stimulus_threshold(data)
 
-    _logger.info("%3d: %s\t%s", counter, threshold, stimulus)
+    _logger.debug("%3d: %s\t%s", counter, threshold, stimulus)
     return data, threshold
 
 
@@ -76,7 +63,24 @@ def sim_ds_single_offsets():
     for i, true_threshold in enumerate(true_thresholds):
         data_collection.append([])
         for j, offset in enumerate(starting_threshold_offsets):
-            data = simPerfectSingleStaircase(true_threshold=true_threshold, starting_threshold=true_threshold + offset)
+            model = ConstantModel(eval_pattern=PATTERN_SINGLE,
+                                  mean=true_threshold + offset,
+                                  std=4)  # std no effect in this case
+            strategy = DoubleStaircaseStrategy(
+                pattern=PATTERN_SINGLE,
+                blindspot=[],
+                model=model,
+                step=(4, 2),
+                threshold_func=DoubleStaircaseStrategy.get_last_seen_threshold_or_mean,
+                repeat_threshold=repeat_threshold
+            )
+            # strategy = ZestStrategy(
+            #     pattern=PATTERN_SINGLE,
+            #     blindspot=[],
+            #     model=model,
+            #     term_std=1.5
+            # )
+            data = simStrategy(true_threshold=true_threshold, model=model, strategy=strategy)
             data_collection[i].append(data)
     # Calculate how many presentations did it take for each test condition
     presentations = [[len(x[0]) for x in l] for l in data_collection]
@@ -97,7 +101,8 @@ def sim_ds_single_offsets():
                           data[THRESHOLD][data[RESPONSE] == STIMULUS_SEEN], 'go',
                           data[TSDISP][data[RESPONSE] == STIMULUS_NOT_SEEN],
                           data[THRESHOLD][data[RESPONSE] == STIMULUS_NOT_SEEN], 'rx',
-                          [0, len(data[TSDISP]) - 0.5], [true_thresholds[i], true_thresholds[i]], 'k:'
+                          [0, len(data[TSDISP]) - 0.5], [true_thresholds[i], true_thresholds[i]], 'k-',
+                          [0, len(data[TSDISP]) - 0.5], [final_estimate[i][j], final_estimate[i][j]], 'r:'
                           )
             ax[i, j].set_facecolor(plt.get_cmap('Reds', 10)(len(data) - 3))
     fig.savefig("sim_ds_single.pdf")
@@ -107,25 +112,42 @@ def sim_ds_single_offsets():
 
 def sim_ds_single_turpin_2003_fig5():
     true_thresholds = np.arange(0, 40.1, 1.0)
-    starting_thresholds = np.array([30])
+    starting_thresholds = np.array([10, 20, 30])
     N = 100
     repeat_threshold = 4
 
     data_collection = []
     for i, true_threshold in enumerate(true_thresholds):
+        _logger.info("%d: Simulating true_threshold = %g", i, true_threshold)
         data_collection.append([])
         for j, starting_threshold in enumerate(starting_thresholds):
             data_collection[i].append([])
             for k in range(N):
-                data = simPerfectSingleStaircase(true_threshold=true_threshold, starting_threshold=starting_threshold,
-                                             repeat_threshold=repeat_threshold)
+                model = ConstantModel(eval_pattern=PATTERN_SINGLE,
+                                      mean=starting_threshold,
+                                      std=4)  # std no effect in this case
+                # strategy = DoubleStaircaseStrategy(
+                #     pattern=PATTERN_SINGLE,
+                #     blindspot=[],
+                #     model=model,
+                #     step=(4, 2),
+                #     threshold_func=DoubleStaircaseStrategy.get_last_seen_threshold_or_mean,
+                #     repeat_threshold=repeat_threshold
+                # )
+                strategy = ZestStrategy(
+                    pattern=PATTERN_SINGLE,
+                    blindspot=[],
+                    model=model,
+                    term_std=1.5
+                )
+                data = simStrategy(true_threshold=true_threshold, model=model, strategy=strategy)
                 data_collection[i][j].append(data)
 
     return locals()
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.WARNING)
+    logging.basicConfig(level=logging.INFO)
 
     # data_collection = sim_ds_single_offsets()
     import timeit

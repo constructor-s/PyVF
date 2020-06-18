@@ -91,7 +91,6 @@ class RampResponder(FunctionResponder):
         super().__init__(true_threshold, fp, fn, width)
 
     def probability_of_seeing(self, stimulus):
-        center = self.threshold[stimulus.loc]
         left = 1 - self.fn[stimulus.loc]
         right = self.fp[stimulus.loc]
 
