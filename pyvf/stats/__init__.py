@@ -210,7 +210,7 @@ class rv_histogram2(scipy.stats.rv_histogram):
             height[shift:] = fill_value
         return rv_histogram2(histogram=(height, bins))
 
-    def mode(self, warn=True):
+    def mode(self, warn=False):
         """
 
         Returns
@@ -229,6 +229,21 @@ class rv_histogram2(scipy.stats.rv_histogram):
         mode_right = bins[i+1]
         mode = 0.5 * (mode_left + mode_right)
         return mode
+
+    def _construct_doc(self, *args, **kwargs):
+        """
+        The original rv_generic._construct_doc is too slow and unnecessary. This is to override and bypass.
+
+        Parameters
+        ----------
+        docdict
+        shapes_vals
+
+        Returns
+        -------
+
+        """
+        pass
 
     @property
     def height(self):

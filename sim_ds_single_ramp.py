@@ -164,6 +164,9 @@ if __name__ == '__main__':
     # Optimized pos_ramp: 10.584605 sec with logging set to WARNING
     # Optimized profile: pos_ramp: 249 ms, 1.7%
 
+    # Baseline: _construct_doc: Total time: 2548 ms, 36.1%
+    # After bypassing: _construct_doc: Total time: 0
+
     # Plotting
     import matplotlib.pyplot as plt
 
