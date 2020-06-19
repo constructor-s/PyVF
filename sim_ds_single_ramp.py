@@ -37,7 +37,7 @@ _logger = logging.getLogger(__name__)
 
 
 def simStrategy(true_threshold, model, strategy):
-    responder = RampResponder(true_threshold=[true_threshold], fp=0.15, fn=0.15)
+    responder = RampResponder(true_threshold=[true_threshold], fp=0.15, fn=0.15, width=4, seed=0)
     data = []
     stimulus, threshold = strategy.get_stimulus_threshold(data)
     counter = 0
@@ -57,8 +57,10 @@ def simStrategy(true_threshold, model, strategy):
 
 
 def sim_ds_single_offsets():
-    true_thresholds = np.array([-0.001, 25, 40.001])
-    starting_threshold_offsets = np.arange(-10.5, 11.5, 1.0)
+    true_thresholds = np.array([-0.001, 15, 25, 40.001])
+    starting_threshold_offsets = np.arange(-20.5, 21.5, 2.0)
+    # true_thresholds = np.array([2, 30])
+    # starting_threshold_offsets = np.array([-1, 1])
     data_collection = []
     repeat_threshold = 4
     for i, true_threshold in enumerate(true_thresholds):
@@ -121,7 +123,7 @@ def sim_ds_single_offsets():
 
 def sim_ds_single_turpin_2003_fig5():
     true_thresholds = np.arange(0, 40.1, 1.0)
-    starting_thresholds = np.array([10, 20])
+    starting_thresholds = np.array([10, 20, 30])
     N = 100
     repeat_threshold = 4
 
@@ -164,9 +166,10 @@ def sim_ds_single_turpin_2003_fig5():
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.WARNING)
 
     # data_collection = sim_ds_single_offsets()
+    # stop()
 
     import timeit
     tic = timeit.default_timer()
@@ -186,8 +189,9 @@ if __name__ == '__main__':
     # Baseline: _construct_doc: Total time: 2548 ms, 36.1%
     # After bypassing: _construct_doc: Total time: 0
 
-    # Plotting
-    import matplotlib.pyplot as plt
+    # 14.399179400000001
+    # 16.8401105
+    # 1.9964689
 
     starting_thresholds = sim["starting_thresholds"]
     true_thresholds = sim["true_thresholds"]
@@ -201,13 +205,23 @@ if __name__ == '__main__':
     final_estimate = [[[x[1][0] for x in k] for k in j] for j in data_collection]
     final_estimate = np.array(final_estimate)
 
+    try:
+        import dill
+        filename = "dump_session.dill.pkl"
+        dill.dump_session(filename)
+        _logger.info("Session dumped to %s", filename)
+    except Exception:
+        _logger.warning("Not dumping session from memory")
+
+    # Plotting
+    import matplotlib.pyplot as plt
+
     for j, starting_threshold in enumerate(starting_thresholds):
         fig, ax = plt.subplots(2, 1, sharex='col', sharey='row', figsize=(8.5, 11))
         ax[0].plot(true_thresholds, presentations[:, j].mean(axis=-1), 'k.-')
         ax[0].set_ylabel("number of presentations")
         ax[0].set_yticks(np.arange(0, 16.1, 2))
         ax[0].grid(True)
-        ax[0].legend([f"4-2 staircase, retest threshold = {repeat_threshold} dB"])
 
         ax[1].plot(true_thresholds, final_estimate[:, j].mean(axis=-1) - true_thresholds, 'k.-')
         ax[1].set_ylabel("error (dB)")
@@ -218,4 +232,13 @@ if __name__ == '__main__':
         ax[1].set_aspect('equal', adjustable='datalim')
 
         fig.suptitle(f"Starting estimate = {starting_threshold}dB, FP = 15%, FN = 15%, N = {N}")
-        fig.savefig(f"sim_ds_single_{starting_threshold}.pdf")
+
+        if type(sim['strategy']) == DoubleStaircaseStrategy:
+            ax[0].legend([fr"4-2 DS (FT-like), retest $\Delta={sim['strategy'].param['repeat_threshold']}$dB"])
+            fig.savefig(f"sim_ds_single_{starting_threshold}.temp.ds.pdf")
+        elif type(sim['strategy']) == StaircaseQuestStrategy:
+            ax[0].legend([fr"4-2 SQ (SITA-like), retest $\Delta={sim['strategy'].param['repeat_threshold']}$dB"])
+            fig.savefig(f"sim_ds_single_{starting_threshold}.temp.sq.pdf")
+        elif type(sim['strategy']) == ZestStrategy:
+            ax[0].legend([f"ZEST (Turpin2003), term. std<{sim['strategy'].param['term_std']} dB"])
+            fig.savefig(f"sim_ds_single_{starting_threshold}.temp.zest.pdf")

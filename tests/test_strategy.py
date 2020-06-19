@@ -20,12 +20,20 @@ You should have received a copy of the GNU General Public License
 along with PyVF. If not, see <https://www.gnu.org/licenses/>.
 """
 
+import logging
+_logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG)
+
 from unittest import TestCase
 
 import pyvf.strategy.Model as sModel
 from pyvf import strategy
 import numpy as np
 import timeit
+
+from pyvf.strategy import *
+from pyvf.strategy.Model import *
+from pyvf.strategy.Responder import *
 
 
 class TestStrategy(TestCase):
@@ -199,3 +207,33 @@ class TestStrategy(TestCase):
         print(sizes)
         self.assertEqual(np.round(sizes[3], 2), 0.43)
         self.assertEqual(np.round(sizes[5], 2), 1.72)
+
+    def test_sq(self):
+        model = ConstantModel(eval_pattern=PATTERN_SINGLE,
+                              mean=40.001-7.5,
+                              std=4)  # std no effect in this case
+        strategy = StaircaseQuestStrategy(
+            pattern=PATTERN_SINGLE,
+            blindspot=[],
+            model=model,
+            step=(4, 2),
+            repeat_threshold=12.0,
+            term_erf=0.69
+        )
+        responder = RampResponder(true_threshold=[40.001], fp=0.0, fn=0.0, width=0.000001)
+        data = []
+        stimulus, threshold = strategy.get_stimulus_threshold(data)
+        counter = 0
+        while stimulus is not None:
+            stimulus = stimulus.copy(**{TSDISP: counter})
+            stimulus = responder.get_response(stimulus)
+
+            _logger.debug("%3d: %s\t%s" % (counter, threshold, stimulus))
+
+            data.append(stimulus)
+            counter += 1
+
+            stimulus, threshold = strategy.get_stimulus_threshold(data)
+
+        _logger.debug("%3d: %s\t%s" % (counter, threshold, stimulus))
+        self.assertGreater(threshold, 35)

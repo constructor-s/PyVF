@@ -563,8 +563,13 @@ class StaircaseQuestStrategy(DoubleStaircaseStrategy):
         self.center_normal = self.hist_normal.mode()
         self.epsilon = self.hist_normal.height.min()  # 1e-3
 
+        self._pdf_updates_cache = {}
+        self._pdf_updates_cache_enabled = True
+        self._pdf_updates_cache_hits = 0
+        self._pdf_updates_cache_misses = 0
+
     def process_additional_termination_rules(self, term, data_m, center):
-        term, threshold = self._pdf_updates(term=term, data_m=data_m, center=center)
+        term, threshold, normal, abnormal = self._pdf_updates(term=term, data_m=data_m, center=center)
         return term
 
     @staticmethod
@@ -601,8 +606,6 @@ class StaircaseQuestStrategy(DoubleStaircaseStrategy):
         1) Find the two modes of the two PDFs and the corresponding probability at that dB
         2) Report the mode with the higher height
 
-        There is also a repeated
-
         Parameters
         ----------
         data_m
@@ -611,58 +614,123 @@ class StaircaseQuestStrategy(DoubleStaircaseStrategy):
         -------
 
         """
-        term, threshold = self._pdf_updates(term=term, data_m=data_m, center=center)
+        term, threshold, normal, abnormal = self._pdf_updates(term=term, data_m=data_m, center=center)
         return threshold
 
-    def _pdf_updates(self, term, data_m, center):
-        term = np.array(term)
-        normal = self.hist_normal.roll(shift=int(round((center - self.center_normal) * self.refine_n)),
-                                       fill_value=self.epsilon)
-        abnormal = self.hist_abnormal
-        threshold = center
+    def _pdf_updates(self, term, data_m, center, debug=True):
+        """
 
-        for i, d in enumerate(data_m):
-            pos = StaircaseQuestStrategy.trial2pos_ramp(normal.bins[:-1], d[THRESHOLD], self.param["pos_fn"],
-                                                        self.param["pos_fp"], self.param["pos_width"], d[RESPONSE])
+
+
+        Parameters
+        ----------
+        term
+        data_m
+        center
+
+        Returns
+        -------
+        term
+        threshold
+        normal
+        abnormal
+
+        Notes
+        ----------—
+        Benchmark:
+        Iterative version: 13864 ms (81.4%)
+        Recursive version: 16290 ms (90.6%)
+        Recursive cached version: 1501 ms (47.9%)
+        """
+        if self._pdf_updates_cache_enabled:
+            key = (term.tobytes(), data_m.tobytes(), center)
+            if key in self._pdf_updates_cache:
+                self._pdf_updates_cache_hits += 1
+                # _logger.info("Cache hits %d", self._pdf_updates_cache_hits)
+                return self._pdf_updates_cache[key]
+            else:
+                self._pdf_updates_cache_misses += 1
+                # _logger.info("Cache miss %d", self._pdf_updates_cache_misses)
+
+        if len(data_m) >= 1:
+            term = np.array(term)
+            term[:-1], threshold, normal, abnormal = self._pdf_updates(term=term[:-1], data_m=data_m[:-1], center=center)
+
+            pos = StaircaseQuestStrategy.trial2pos_ramp(normal.bins[:-1], data_m[-1][THRESHOLD], self.param["pos_fn"],
+                                                        self.param["pos_fp"], self.param["pos_width"], data_m[-1][RESPONSE])
             trial = rv_histogram2(histogram=(pos, normal.bins))
+
             normal = normal * trial
             abnormal = abnormal * trial
 
-            threshold = StaircaseQuestStrategy._get_likely_mode(normal, abnormal)
+            # Handle a very edge case: e.g. starting from 32.501 with responder at 40.001
+            # thresholds: 32.501, 36.501, 40.0 (terminate), -0.45, ...
+            # response: 1, 1, 1, 1, ...
+            # mode of normal (p): 34.45 (0.24), 36.45 (0.32), 38.45 (0.30) (terminate),
+            # mode of abnormal (p): -0.45 (0.31), -0.45 (0.31), -0..45 (0.31) (terminate),
+            # Basically this can occur in abnormally high sensitivity, which really only occurs in simulations.
+            # Thus pdf_abnormal_threshold is used
+            threshold = StaircaseQuestStrategy._get_likely_mode(normal, abnormal, pdf_abnormal_threshold=0.33)
 
+            if debug:
+                mode1 = normal.mode()
+                p1 = normal.pdf(mode1)
+                mode2 = abnormal.mode()
+                p2 = abnormal.pdf(mode2)
+                _logger.debug("normal(%g)=%g, abnormal(%g)=%g", mode1, p1, mode2, p2)
+
+            # Staircase termination criteria is already included in term
+            # Add ERF termination criteria
             if (StaircaseQuestStrategy.erf(normal.std(), normal.mode()) <= self.param["term_erf"] or
                     StaircaseQuestStrategy.erf(abnormal.std(), abnormal.mode()) <= self.param["term_erf"]):
-                term[i] = True
+                term[-1] = True
 
-            if term[i]:
+            if term[-1]:
                 # If there are any remaining data to be processed, we assume that is from another repeated trial
                 # So we have to reset the PDFs here
                 normal = self.hist_normal.roll(shift=int(round((threshold - self.center_normal) * self.refine_n)),
                                                fill_value=self.epsilon)
                 abnormal = self.hist_abnormal
 
-        return term, threshold
+            if self._pdf_updates_cache_enabled:
+                term.setflags(write=False)
+                self._pdf_updates_cache[key] = term, threshold, normal, abnormal
+
+            return term, threshold, normal, abnormal
+
+        else:  # len(data_m) == 0
+            normal = self.hist_normal.roll(shift=int(round((center - self.center_normal) * self.refine_n)),
+                                           fill_value=self.epsilon)
+            abnormal = self.hist_abnormal
+
+            if self._pdf_updates_cache_enabled:
+                term.setflags(write=False)
+                self._pdf_updates_cache[key] = term, center, normal, abnormal
+
+            return term, center, normal, abnormal
 
     @staticmethod
-    def _get_likely_mode(pdf1, pdf2):
+    def _get_likely_mode(pdf_normal, pdf_abnormal, pdf_abnormal_threshold=0.0):
         """
 
         Parameters
         ----------
-        pdf1 : rv_histogram2
-        pdf2 : rv_histogram2
+        pdf_normal : rv_histogram2
+        pdf_abnormal : rv_histogram2
+        pdf_abnormal_threshold : float
+            If the abnormal pdf is lower than this number, then reject the abnormal result and always take the normal result
 
         Returns
         -------
 
         """
-        mode1 = pdf1.mode()
-        p1 = pdf1.pdf(mode1)
+        mode1 = pdf_normal.mode()
+        p1 = pdf_normal.pdf(mode1)
 
-        mode2 = pdf2.mode()
-        p2 = pdf2.pdf(mode2)
+        mode2 = pdf_abnormal.mode()
+        p2 = pdf_abnormal.pdf(mode2)
 
-        return mode1 if p1 > p2 else mode2
+        return mode1 if (p1 > p2 or p2 < pdf_abnormal_threshold) else mode2
 
 
 class ZestStrategy(Strategy):

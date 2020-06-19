@@ -70,7 +70,7 @@ class FunctionResponder(Responder):
 
 
 class RampResponder(FunctionResponder):
-    def __init__(self, true_threshold, fp=0.05, fn=0.05, width=4):
+    def __init__(self, true_threshold, fp=0.05, fn=0.05, width=4, seed=None):
         """
         Function shape and default values based on Turpin 2003
 
@@ -88,7 +88,7 @@ class RampResponder(FunctionResponder):
         as Determined by Computer Simulation. Investigative Ophthalmology and Visual Science, 44(11), 4787–4795.
         https://doi.org/10.1167/iovs.03-0023
         """
-        super().__init__(true_threshold, fp, fn, width)
+        super().__init__(true_threshold=true_threshold, fp=fp, fn=fn, width=width, seed=seed)
 
     def probability_of_seeing(self, stimulus):
         left = 1 - self.fn[stimulus.loc]
