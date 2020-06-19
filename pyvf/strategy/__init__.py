@@ -182,6 +182,31 @@ class Strategy:
             tsresp=STIMULUS_TS_NONE
         )
 
+    @staticmethod
+    def trial2pos_ramp(x, center, fn, fp, width, seen):
+        """
+
+        Parameters
+        ----------
+        x : array_like
+            Evaluation points
+
+        Returns
+        -------
+        y : array_like
+
+        """
+        yl = 1 - fn
+        yr = fp
+
+        y = pos_ramp(x=x, center=center, yl=yl, yr=yr, width=width)
+
+        if seen == STIMULUS_SEEN:
+            return 1 - y
+        else:  # STIMULUS_NOT_SEEN
+            return y
+
+
 class DoubleStaircaseStrategy(Strategy):
     def __init__(self, pattern, blindspot, model, step=(4, 2), threshold_func=None, repeat_threshold=4.0, test_sequence=None, *args, **kwargs):
         """
@@ -233,6 +258,8 @@ class DoubleStaircaseStrategy(Strategy):
         stimulus = None  # The next stimulus to be presented
         threshold = np.full(len(self.param['pattern']), np.nan)  # The current best estimate of point thresholds
 
+        model_mean = self.param["model"].get_mean()
+
         # Use m = 1 ... M to index SAP locations
         # right now there is no randomization... just use the test_sequence to rank stimulus test order
         for m in self.param["test_sequence"]:
@@ -256,6 +283,8 @@ class DoubleStaircaseStrategy(Strategy):
                                    (data_m[RESPONSE] == STIMULUS_SEEN))
                 force_terminate |= ((data_m[THRESHOLD] <= self.param["min_db"]) &
                                     (data_m[RESPONSE] == STIMULUS_NOT_SEEN))
+                force_terminate = self.process_additional_termination_rules(term=force_terminate, data_m=data_m, center=model_mean[m])
+
             reversals_list, repeats_list = DoubleStaircaseStrategy.get_staircase_stats(response_sequence,
                                                                          step=self.param["step"],
                                                                          force_terminate=force_terminate)
@@ -271,7 +300,7 @@ class DoubleStaircaseStrategy(Strategy):
             # Calculate center, and, at the same time, produce a stimulus if necessary
             # If no test has been done yet and we do not already know what to test next (stimulus is None)
             if len(data_m) == 0:
-                threshold[m] = self.param["model"].get_mean()[m]
+                threshold[m] = model_mean[m]
                 if stimulus is None:
                     stimulus = self.get_new_stimulus_at(threshold[m], location=location)
                 else:
@@ -279,24 +308,9 @@ class DoubleStaircaseStrategy(Strategy):
 
             # Check the last presentation response for ceiling or flooring effects,
             # and this is also termination of the staircase
-            elif (data_m[-1][THRESHOLD] >= self.param["max_db"] and
-                  data_m[-1][RESPONSE] == STIMULUS_SEEN):
-                # Report 0.01 dB higher than the max. This is just to be symmetric with the flooring case below.
-                # I don't know if this is a standard implementation. The 0.01 dB is chosen arbitrarily.
-                threshold[m] = self.param["max_db"] + 0.01
-                if repeats_list[-1] == 0 and abs(threshold[m] - self.param["model"].get_mean()[m]) > self.param["repeat_threshold"]:
-                    stimulus = self.get_new_stimulus_at(threshold[m], location=location)
-                else:
-                    pass  # We are done here
-
-            elif (data_m[-1][THRESHOLD] <= self.param["min_db"] and
-                  data_m[-1][RESPONSE] == STIMULUS_NOT_SEEN):
-                # This is arguable more important than the case above. It is my impression that on HFA reports there
-                # are some locations reported as 0 and some reported as <0. Since min_db is almost always 0 dB,
-                # we specify this case as -0.01 dB, so that this may be reported as <0.
-                # I don't know if this is a standard implementation. The 0.01 dB is chosen arbitrarily.
-                threshold[m] = self.param["min_db"] - 0.01
-                if repeats_list[-1] == 0 and abs(threshold[m] - self.param["model"].get_mean()[m]) > self.param["repeat_threshold"]:
+            elif force_terminate[-1]:
+                threshold[m] = self.param["threshold_func"](self, data_m=data_m, term=force_terminate, center=model_mean[m])
+                if repeats_list[-1] == 0 and abs(threshold[m] - model_mean[m]) > self.param["repeat_threshold"]:
                     stimulus = self.get_new_stimulus_at(threshold[m], location=location)
                 else:
                     pass  # We are done here
@@ -310,8 +324,8 @@ class DoubleStaircaseStrategy(Strategy):
             # We have finished a staircase
             elif reversals_list[-1] == len(self.param["step"]):
                 # this location has finished all staircase reversals
-                threshold[m] = self.param["threshold_func"](self, data_m)
-                if repeats_list[-1] == 0 and abs(threshold[m] - self.param["model"].get_mean()[m]) > self.param["repeat_threshold"]:
+                threshold[m] = self.param["threshold_func"](self, data_m=data_m, term=force_terminate, center=model_mean[m])
+                if repeats_list[-1] == 0 and abs(threshold[m] - model_mean[m]) > self.param["repeat_threshold"]:
                     stimulus = self.get_new_stimulus_at(threshold[m], location=location)
                 else:
                     pass  # We are done here
@@ -319,7 +333,7 @@ class DoubleStaircaseStrategy(Strategy):
             # We need to continue the staircase
             else:
                 # this location still needs testing
-                threshold[m] = self.param["threshold_func"](self, data_m)
+                threshold[m] = self.param["threshold_func"](self, data_m=data_m, term=force_terminate, center=model_mean[m])
 
                 # if no next stimulus has been picked yet
                 if stimulus is None:
@@ -468,7 +482,7 @@ class DoubleStaircaseStrategy(Strategy):
 
         return x
 
-    def get_last_seen_threshold(self, data_m):
+    def get_last_seen_threshold(self, data_m, *args, **kwargs):
         """
         data_m[THRESHOLD] are trial thresholds
         data_m[RESPONSE] are response results
@@ -491,13 +505,13 @@ class DoubleStaircaseStrategy(Strategy):
 
         idx_ = np.nonzero(data_m[RESPONSE] == STIMULUS_SEEN)
         idx_ = idx_[0]
-        if len(idx_) == 0:
-            idx = -1
+        if len(idx_) == 0:  # If all stimulus were not seen, return the lowest
+            return data_m[THRESHOLD].min()
         else:
             idx = idx_[-1]
-        return data_m[THRESHOLD][idx]
+            return data_m[THRESHOLD][idx]
 
-    def get_last_seen_threshold_or_mean(self, data_m):
+    def get_last_seen_threshold_or_mean(self, data_m, *args, **kwargs):
         # Extract the response sequence column, e.g. [0, 0, 1, 0, 1, 0, 0, 1]
         response_sequence = data_m[RESPONSE]
         # We assume no error in the trial center implementation,
@@ -516,6 +530,139 @@ class DoubleStaircaseStrategy(Strategy):
                                                                                    force_terminate=force_terminate)
         thresholds = [self.get_last_seen_threshold(data_m[repeats_list == i]) for i in np.unique(repeats_list)]
         return np.mean(thresholds)
+
+    def process_additional_termination_rules(self, term, data_m, center):
+        return term
+
+
+class StaircaseQuestStrategy(DoubleStaircaseStrategy):
+    def __init__(self, pattern, blindspot, model, repeat_threshold=12.0, term_erf=0.69, *args, **kwargs):
+        super().__init__(pattern, blindspot, model, repeat_threshold=repeat_threshold, threshold_func=StaircaseQuestStrategy.get_threshold_from_pdfs, *args, **kwargs)
+
+        self.param["term_erf"] = term_erf
+        # Parameters determining shape of probability of seeing curve
+        self.param["pos_fp"] = 0.05
+        self.param["pos_fn"] = 0.05
+        self.param["pos_width"] = 4.0
+
+        # Initialize
+        import pyvf.resources.turpin2003 as turpin2003
+        with pkg_resources.open_text(turpin2003, "abnormal_pdf.csv") as f:
+            abnormal_bins, abnormal_height = np.loadtxt(f, dtype=np.float32, delimiter=",", skiprows=0).T
+            abnormal_bins = np.concatenate( (abnormal_bins - 0.5, [abnormal_bins[-1] + 0.5]) )
+        with pkg_resources.open_text(turpin2003, "normal_pdf.csv") as f:
+            normal_bins, normal_height = np.loadtxt(f, dtype=np.float32, delimiter=",", skiprows=0).T
+            normal_bins = np.concatenate((normal_bins - 0.5, [normal_bins[-1] + 0.5]))
+        assert np.allclose(abnormal_bins, normal_bins), "The bins of abnormal and normal PDFs must match"
+        assert np.allclose(np.sum(abnormal_height), np.sum(normal_height), rtol=0.01, atol=0.01), "Input PDFs must sum to 1"
+
+        # Fields related to probabilistic distribution
+        self.refine_n = 10
+        self.hist_abnormal = rv_histogram2(histogram=(abnormal_height, abnormal_bins)).refined(self.refine_n)
+        self.hist_normal   = rv_histogram2(histogram=(  normal_height,   normal_bins)).refined(self.refine_n)
+        self.center_normal = self.hist_normal.mode()
+        self.epsilon = self.hist_normal.height.min()  # 1e-3
+
+    def process_additional_termination_rules(self, term, data_m, center):
+        term, threshold = self._pdf_updates(term=term, data_m=data_m, center=center)
+        return term
+
+    @staticmethod
+    def erf(std, mode):
+        """
+        The SITA algorithm uses the error-related factor (ERF)4 to deter-
+        mine whether the variance of either pf is sufficiently narrow to termi- nate the staircase procedure,
+        where ERF := 0.19 + sqrt(variance) - 3/70*mode = 0.19 + std - 3/70*mode
+        Parameters
+        ----------
+        std : float | array_like
+        mode : float | array_like
+
+        Returns
+        -------
+        erf : float | array_like
+            SITA error-related factor
+
+        References
+        --------------
+        .. [1] Turpin, A., McKendrick, A. M., Johnson, C. A., & Vingrys, A. J. (2003).
+        Properties of Perimetric Threshold Estimates from Full Threshold, ZEST, and SITA-like Strategies,
+        as Determined by Computer Simulation. Investigative Ophthalmology and Visual Science, 44(11), 4787–4795.
+        https://doi.org/10.1167/iovs.03-0023
+        """
+        return 0.19 + std - 3.0 / 70.0 * mode
+
+    def get_threshold_from_pdfs(self, data_m, term, center, *args, **kwargs):
+        """
+        SQ/SITA returned the most likely mode of the two pfs used in the procedure
+
+        The quote above leaves some room for interpretation. So we interpret it as:
+        0) Normalize both PDFs (mathematically speaking PDFs are always normalized)
+        1) Find the two modes of the two PDFs and the corresponding probability at that dB
+        2) Report the mode with the higher height
+
+        There is also a repeated
+
+        Parameters
+        ----------
+        data_m
+
+        Returns
+        -------
+
+        """
+        term, threshold = self._pdf_updates(term=term, data_m=data_m, center=center)
+        return threshold
+
+    def _pdf_updates(self, term, data_m, center):
+        term = np.array(term)
+        normal = self.hist_normal.roll(shift=int(round((center - self.center_normal) * self.refine_n)),
+                                       fill_value=self.epsilon)
+        abnormal = self.hist_abnormal
+        threshold = center
+
+        for i, d in enumerate(data_m):
+            pos = StaircaseQuestStrategy.trial2pos_ramp(normal.bins[:-1], d[THRESHOLD], self.param["pos_fn"],
+                                                        self.param["pos_fp"], self.param["pos_width"], d[RESPONSE])
+            trial = rv_histogram2(histogram=(pos, normal.bins))
+            normal = normal * trial
+            abnormal = abnormal * trial
+
+            threshold = StaircaseQuestStrategy._get_likely_mode(normal, abnormal)
+
+            if (StaircaseQuestStrategy.erf(normal.std(), normal.mode()) <= self.param["term_erf"] or
+                    StaircaseQuestStrategy.erf(abnormal.std(), abnormal.mode()) <= self.param["term_erf"]):
+                term[i] = True
+
+            if term[i]:
+                # If there are any remaining data to be processed, we assume that is from another repeated trial
+                # So we have to reset the PDFs here
+                normal = self.hist_normal.roll(shift=int(round((threshold - self.center_normal) * self.refine_n)),
+                                               fill_value=self.epsilon)
+                abnormal = self.hist_abnormal
+
+        return term, threshold
+
+    @staticmethod
+    def _get_likely_mode(pdf1, pdf2):
+        """
+
+        Parameters
+        ----------
+        pdf1 : rv_histogram2
+        pdf2 : rv_histogram2
+
+        Returns
+        -------
+
+        """
+        mode1 = pdf1.mode()
+        p1 = pdf1.pdf(mode1)
+
+        mode2 = pdf2.mode()
+        p2 = pdf2.pdf(mode2)
+
+        return mode1 if p1 > p2 else mode2
 
 
 class ZestStrategy(Strategy):
@@ -560,10 +707,10 @@ class ZestStrategy(Strategy):
         self.refine_n = 10
         self.hist_abnormal = rv_histogram2(histogram=(abnormal_height, abnormal_bins)).refined(self.refine_n)
         self.hist_normal   = rv_histogram2(histogram=(  normal_height,   normal_bins)).refined(self.refine_n)
-        self.coef_abnormal = 1 / (1.0 + self.param["normal2abnormal_ratio"])
-        self.coef_normal   = 1 - self.coef_abnormal
         self.center_normal = self.hist_normal.mode()
         self.epsilon = self.hist_normal.height.min()  # 1e-3
+        self.coef_abnormal = 1 / (1.0 + self.param["normal2abnormal_ratio"])
+        self.coef_normal   = 1 - self.coef_abnormal
 
     def get_stimulus_threshold(self, data):
         data = Stimulus.to_numpy(data)
@@ -588,7 +735,7 @@ class ZestStrategy(Strategy):
                         self.coef_normal * self.hist_normal.roll(shift=int(round((model_mean[m] - self.center_normal) * self.refine_n)),
                                                                  fill_value=self.epsilon))
             if len(data_m) == 0:
-                threshold[m] = init_pdf.mode()
+                threshold[m] = init_pdf.mean()
                 if stimulus is None:
                     stimulus = self.get_new_stimulus_at(db=init_pdf.mean(), location=location)
             else:
@@ -601,7 +748,11 @@ class ZestStrategy(Strategy):
                 trial_pdf = rv_histogram2(histogram=(trial_height, self.hist_normal.bins))
                 updated_pdf = init_pdf * trial_pdf  # type: rv_histogram2
 
-                threshold[m] = updated_pdf.mode()
+                # Turpin 2003:
+                # As ZEST returned the mean of the final pdf, which provided a less biased estimate than the mode,8
+                # a slightly different threshold again was re-
+                # turned by ZEST, because of this factor alone.
+                threshold[m] = updated_pdf.mean()
                 # Another implementation is trial_pdf.mode() as in
                 # Watson, A. B., Pelli, D. G., & others. (1979). The QUEST staircase procedure. Applied Vision Association Newsletter, 14, 6–7.
                 # which is not biased by the shape of init_pdf
@@ -614,27 +765,3 @@ class ZestStrategy(Strategy):
                         stimulus = self.get_new_stimulus_at(db=updated_pdf.mean(), location=location)
 
         return stimulus, threshold
-
-    @staticmethod
-    def trial2pos_ramp(x, center, fn, fp, width, seen):
-        """
-
-        Parameters
-        ----------
-        x : array_like
-            Evaluation points
-
-        Returns
-        -------
-        y : array_like
-
-        """
-        yl = 1 - fn
-        yr = fp
-
-        y = pos_ramp(x=x, center=center, yl=yl, yr=yr, width=width)
-
-        if seen == STIMULUS_SEEN:
-            return 1 - y
-        else:  # STIMULUS_NOT_SEEN
-            return y

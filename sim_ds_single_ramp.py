@@ -60,26 +60,35 @@ def sim_ds_single_offsets():
     true_thresholds = np.array([-0.001, 25, 40.001])
     starting_threshold_offsets = np.arange(-10.5, 11.5, 1.0)
     data_collection = []
+    repeat_threshold = 4
     for i, true_threshold in enumerate(true_thresholds):
         data_collection.append([])
         for j, offset in enumerate(starting_threshold_offsets):
             model = ConstantModel(eval_pattern=PATTERN_SINGLE,
                                   mean=true_threshold + offset,
                                   std=4)  # std no effect in this case
-            strategy = DoubleStaircaseStrategy(
-                pattern=PATTERN_SINGLE,
-                blindspot=[],
-                model=model,
-                step=(4, 2),
-                threshold_func=DoubleStaircaseStrategy.get_last_seen_threshold_or_mean,
-                repeat_threshold=repeat_threshold
-            )
+            # strategy = DoubleStaircaseStrategy(
+            #     pattern=PATTERN_SINGLE,
+            #     blindspot=[],
+            #     model=model,
+            #     step=(4, 2),
+            #     threshold_func=DoubleStaircaseStrategy.get_last_seen_threshold_or_mean,
+            #     repeat_threshold=repeat_threshold
+            # )
             # strategy = ZestStrategy(
             #     pattern=PATTERN_SINGLE,
             #     blindspot=[],
             #     model=model,
             #     term_std=1.5
             # )
+            strategy = StaircaseQuestStrategy(
+                pattern=PATTERN_SINGLE,
+                blindspot=[],
+                model=model,
+                step=(4, 2),
+                repeat_threshold=12.0,
+                term_erf=0.69
+            )
             data = simStrategy(true_threshold=true_threshold, model=model, strategy=strategy)
             data_collection[i].append(data)
     # Calculate how many presentations did it take for each test condition
@@ -112,7 +121,7 @@ def sim_ds_single_offsets():
 
 def sim_ds_single_turpin_2003_fig5():
     true_thresholds = np.arange(0, 40.1, 1.0)
-    starting_thresholds = np.array([10, 20, 30])
+    starting_thresholds = np.array([10, 20])
     N = 100
     repeat_threshold = 4
 
@@ -134,11 +143,19 @@ def sim_ds_single_turpin_2003_fig5():
                 #     threshold_func=DoubleStaircaseStrategy.get_last_seen_threshold_or_mean,
                 #     repeat_threshold=repeat_threshold
                 # )
-                strategy = ZestStrategy(
+                # strategy = ZestStrategy(
+                #     pattern=PATTERN_SINGLE,
+                #     blindspot=[],
+                #     model=model,
+                #     term_std=1.5
+                # )
+                strategy = StaircaseQuestStrategy(
                     pattern=PATTERN_SINGLE,
                     blindspot=[],
                     model=model,
-                    term_std=1.5
+                    step=(4, 2),
+                    repeat_threshold=12.0,
+                    term_erf=0.69
                 )
                 data = simStrategy(true_threshold=true_threshold, model=model, strategy=strategy)
                 data_collection[i][j].append(data)
@@ -150,10 +167,12 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
 
     # data_collection = sim_ds_single_offsets()
+
     import timeit
     tic = timeit.default_timer()
     sim = sim_ds_single_turpin_2003_fig5()
     print(timeit.default_timer() - tic)
+
     # Baseline: 16.2319718 sec, 15.768244 sec with logging set to WARNING
     # Baseline profile: get_staircase_stats total time: 5020 ms, 24%
     #                   get_stimulus_threshold total time: 13657 ms, 65.3%
