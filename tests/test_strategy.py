@@ -228,12 +228,12 @@ class TestStrategy(TestCase):
             stimulus = stimulus.copy(**{TSDISP: counter})
             stimulus = responder.get_response(stimulus)
 
-            _logger.debug("%3d: %s\t%s" % (counter, threshold, stimulus))
+            _logger.debug("%3d: %s\t%s", counter, threshold, stimulus)
 
             data.append(stimulus)
             counter += 1
 
             stimulus, threshold = strategy.get_stimulus_threshold(data)
 
-        _logger.debug("%3d: %s\t%s" % (counter, threshold, stimulus))
+        _logger.debug("%3d: %s\t%s", counter, threshold, stimulus)
         self.assertGreater(threshold, 35)
