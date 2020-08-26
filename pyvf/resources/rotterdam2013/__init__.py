@@ -68,7 +68,7 @@ with importlib.resources.open_binary(__name__, LongGlaucVF_20150216_FILENAME) as
 
     VF_POINTS_OD = VF_POINTS.merge(VISUAL_FIELDS[["STUDY_ID", "FIELD_ID", "SITE"]], how="left")
     os_mask = VF_POINTS_OD["SITE"] == "OS"
-    VF_POINTS_OD["STUDY_SITE_ID"] = VF_POINTS_OD["STUDY_ID"] * 2 - 1 + os_mask
+    VF_POINTS_OD["STUDY_SITE_ID"] = VF_POINTS_OD["STUDY_ID"] * 2 - 1 + os_mask  # starts from one
     VF_POINTS_OD.loc[os_mask, "X"] *= -1
     VF_POINTS_OD.loc[os_mask, "SITE"] = "OD"
     VF_POINTS_OD = VF_POINTS_OD.sort_values(by=["FIELD_ID", "Y", "X"], ascending=[True, False, True])
@@ -77,6 +77,8 @@ with importlib.resources.open_binary(__name__, LongGlaucVF_20150216_FILENAME) as
     VF_THRESHOLD = VF_POINTS_OD["THRESHOLD"].to_numpy(dtype=np.float32).reshape([-1, M])
     VF_THRESHOLD_SITES = VF_POINTS_OD["STUDY_SITE_ID"].to_numpy(dtype=np.int32).reshape([-1, M])
     VF_THRESHOLD_SITES = VF_THRESHOLD_SITES[:, 0]
+    VF_THRESHOLD_INFO = VF_POINTS_OD.iloc[::M, :][["FIELD_ID", "STUDY_SITE_ID"]]
+    VF_THRESHOLD_INFO = VF_THRESHOLD_INFO.merge(VISUAL_FIELDS, how="left")
     N, M = VF_THRESHOLD.shape
     VF_BLINDSPOTS = (25, 34)
 

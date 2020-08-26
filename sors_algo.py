@@ -25,7 +25,6 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with PyVF. If not, see <https://www.gnu.org/licenses/>.
 """
-from pyvf.resources.rotterdam2013 import VF_THRESHOLD, VF_THRESHOLD_SITES, VF_BLINDSPOTS
 from pyvf.strategy import PATTERN_P24D2
 from pyvf.plot import VFPlotManager
 
@@ -37,19 +36,33 @@ import logging
 import argparse
 
 _logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 parser = argparse.ArgumentParser(description='Train and plot the results of SORS training process')
-parser.add_argument('--load', help='Load a previously trained session using dill.load_session instead of training')
+parser.add_argument('--load', type=str, help='Load a previously trained session using dill.load_session instead of training')
+parser.add_argument('--md-upper', type=float, help='Filter fields with an MD upper bound')
+parser.add_argument('--md-lower', type=float, help='Filter fields with an MD lower bound')
+parser.add_argument('--suffix', type=str, default="", help='Suffix to plot titles')
 args = parser.parse_args()
 
 
 if not args.load:
+    from pyvf.resources.rotterdam2013 import VF_THRESHOLD, VF_BLINDSPOTS, VF_THRESHOLD_INFO
+    mask = np.isfinite(VF_THRESHOLD_INFO["MD"])
+    if args.md_upper is not None:
+        mask &= VF_THRESHOLD_INFO["MD"] < args.md_upper
+    if args.md_lower is not None:
+        mask &= VF_THRESHOLD_INFO["MD"] > args.md_lower
+    VF_THRESHOLD = VF_THRESHOLD[mask]
+    VF_THRESHOLD_INFO = VF_THRESHOLD_INFO[mask]
+    _logger.info("VF_THRESHOLD.shape = %s", VF_THRESHOLD.shape)
+
     Omega_train_all = []
     D_train_all = []
     n_splits = 10
     random_state = 0
     train_test_splits = tuple(GroupShuffleSplit(n_splits=n_splits, random_state=random_state)
-                              .split(X=VF_THRESHOLD, y=None, groups=VF_THRESHOLD_SITES))
+                              .split(X=VF_THRESHOLD, y=None, groups=VF_THRESHOLD_INFO["STUDY_SITE_ID"]))
     for train_i, test_i in train_test_splits:
         print(f"{len(train_i) = }, {len(test_i) = })")
 
@@ -94,7 +107,9 @@ if not args.load:
 
 else:
     import dill
+    old_args = args
     dill.load_session(args.load)
+    args = old_args
 
 
 def plot_sequence(Omega_train_all, D_train_all):
@@ -163,7 +178,7 @@ def plot_performance():
         ax.set_xticks(np.arange(0, 54.1, 6))
         ax.set_xlabel(xlab)
         ax.set_ylabel("Point-wise RMSE (dB)")
-        ax.set_title(tit)
+        ax.set_title(tit + args.suffix)
 
     return fig, axes
 

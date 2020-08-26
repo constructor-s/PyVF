@@ -1,3 +1,29 @@
+"""
+Interface and implementations for normal population average values for use by perimetry strategies as starting values,
+also for analysis of results against this baseline.
+Companion GrowthPattern classes codes for interface and implementations for during-test adjustments of the starting values.
+
+
+Copyright 2020 Bill Runjie Shi
+At the Vision and Eye Movements Lab, University of Toronto.
+Visit us at: http://www.eizenman.ca/
+
+This file is part of PyVF.
+
+PyVF is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+PyVF is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with PyVF. If not, see <https://www.gnu.org/licenses/>.
+"""
+
 import numpy as np
 
 from pyvf.strategy import XOD, YOD, PATTERN_P24D2
@@ -101,3 +127,35 @@ class ConstantModel(Model):
 
     def get_std(self):
         return np.full(shape=len(self.param['eval_pattern']), fill_value=self.param["std"])
+
+
+class GrowthPattern:
+    def adjust(self, mean, std, estimates):
+        return mean, std, estimates
+
+
+class SimpleGrowthPattern(GrowthPattern):
+    def __init__(self):
+        self.pattern = {}
+        self.agg_fun = np.nanmean
+
+    def adjust(self, mean, std, estimates):
+        mean_adjusted = mean.copy()
+        for k, v in self.pattern.items():
+            offsets = estimates[v] - mean[v]
+            if np.isfinite(offsets).any():
+                aggregate_offset = self.agg_fun(offsets)
+                mean_adjusted[k] += aggregate_offset
+
+        return mean_adjusted, std, estimates
+
+
+class Simplep24d2QuadrantGrowth(SimpleGrowthPattern):
+    def __init__(self):
+        super().__init__()
+        self.pattern = {
+         0: [12], 1: [12], 4: [12], 5: [12], 6: [12],10: [12],11: [12],13: [12],18: [12],19: [12],20: [12],21: [12],22: [12],
+         2: [15], 3: [15], 7: [15], 8: [15], 9: [15],14: [15],16: [15],17: [15],23: [15],24: [15],26: [15],
+        27: [38],28: [38],29: [38],30: [38],31: [38],36: [38],37: [38],39: [38],44: [38],45: [38],46: [38],50: [38],51: [38],
+        32: [41],33: [41],35: [41],40: [41],42: [41],43: [41],47: [41],48: [41],49: [41],52: [41],53: [41],
+        }
