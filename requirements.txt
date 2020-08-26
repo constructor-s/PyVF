@@ -4,3 +4,4 @@ numpy>=1.18.1
 pandas>=1.0.4
 requests>=2.23.0
 scipy>=1.4.1
+pydicom>=2.0.0
