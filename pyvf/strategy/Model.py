@@ -54,6 +54,19 @@ class Model:
     def get_std(self):
         raise NotImplementedError()
 
+    def get_td(self, vf):
+        return vf - self.get_mean()
+
+    def get_md(self, vf):
+        std = self.get_std()
+        non_blindspot = std > 0
+
+        std = std[non_blindspot]
+        weights = 1.0 / (std ** 2)
+        weights = weights * 1.0 / np.sum(weights)
+
+        return np.dot(weights, self.get_td(vf)[non_blindspot])
+
 
 class AgeLinearModel(Model):
     def __init__(self, eval_pattern, age, model_pattern, intercept, slope, std=None, *args, **kwargs):
