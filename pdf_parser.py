@@ -106,6 +106,26 @@ class HFASFATextParser:
 if __name__ == '__main__':
     import subprocess
     import io
+
+    try:
+        output = subprocess.run(["pdftk", "--version"], capture_output=True)
+        print("Found pdftk")
+        print(output.stdout.decode())
+    except FileNotFoundError:
+        print("Did not find pdftk, downloading...")
+        import requests
+        import zipfile
+        import shutil
+        r = requests.get("https://globalcdn.nuget.org/packages/pdftk.exe.1.44.0.nupkg")
+        with zipfile.ZipFile(io.BytesIO(r.content)) as zf:
+            with zf.open("Tools/pdftk/bin/pdftk.exe") as fsrc, open("pdftk.exe", "wb") as fdst:
+                shutil.copyfileobj(fsrc, fdst)
+            with zf.open("Tools/pdftk/bin/libiconv2.dll") as fsrc, open("libiconv2.dll", "wb") as fdst:
+                shutil.copyfileobj(fsrc, fdst)
+        output = subprocess.run(["pdftk", "--version"], capture_output=True)
+        print("Found pdftk")
+        print(output.stdout.decode())
+
     output = subprocess.run(["pdftk", sys.argv[1], "output", "-", "uncompress"], capture_output=True)
     raw_pdf = output.stdout
 
