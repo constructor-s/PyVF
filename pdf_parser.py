@@ -12,13 +12,15 @@ from pdfminer.pdfparser import PDFParser
 
 class HFASFADevice(PDFLayoutAnalyzer):
     def __init__(self, rsrcmgr, pageno=1, laparams=None):
-        super(HFASFADevice, self).__init__(rsrcmgr, pageno=1, laparams=None)
+        super(HFASFADevice, self).__init__(rsrcmgr, pageno, laparams)
+        self.byte_sequences = []
         self.text_sequences = []
 
     def render_string(self, textstate, seq, ncs, graphicstate):
         super(HFASFADevice, self).render_string(textstate, seq, ncs, graphicstate)
         font = textstate.font
         for obj in seq:
+            self.byte_sequences.append(obj)
             self.text_sequences.append("".join([font.to_unichr(c) for c in font.decode(obj)]))
 
 
@@ -102,7 +104,13 @@ class HFASFATextParser:
 
 
 if __name__ == '__main__':
-    with open(sys.argv[1], 'rb') as in_file:
+    import subprocess
+    import io
+    output = subprocess.run(["pdftk", sys.argv[1], "output", "-", "uncompress"], capture_output=True)
+    raw_pdf = output.stdout
+
+    # with open(sys.argv[1], 'rb') as in_file:
+    with io.BytesIO(raw_pdf) as in_file:
         parser = PDFParser(in_file)
         doc = PDFDocument(parser)
         rsrcmgr = PDFResourceManager()
@@ -112,7 +120,16 @@ if __name__ == '__main__':
             interpreter.process_page(page)
 
         sfa = HFASFATextParser(device.text_sequences)
-        print(sfa.name, sfa.dob, sfa.gender, sfa.id, sfa.laterality)
+        print(sfa.name, sfa.dob, sfa.gender, sfa.id, sfa.laterality, sep="\n")
         print(sfa.vf)
         print(sfa.td)
         print(sfa.pd)
+
+    # Anonymization
+    for snippet in (device.byte_sequences[device.text_sequences.index("Patient:")+1],
+                    device.byte_sequences[device.text_sequences.index("Patient ID:")+1],
+                    device.byte_sequences[device.text_sequences.index("Date of Birth:")+1],
+                    ):
+        raw_pdf = raw_pdf.replace(snippet, b"")  # Since this PDF is passing through pdftk compression again, we actually don't have to manitain the same byte length
+
+    output = subprocess.run(["pdftk", "-", "output", sys.argv[1]+".pdf", "compress"], input=raw_pdf)
