@@ -14,7 +14,7 @@ Currently there is no active plan to interface with commercial perimeters for re
 ## Usage
 ### Requirements
 
-Currently it does not depend on any package other than SciPy and optionally Matplotlib for plotting in examples - all of which is included in a standard Anaconda installation. Latest version of Python (3.8) is recommended.
+See [`requirements.txt`](requirements.txt). Latest version of Python (3.8) installed using an [Anaconda](https://www.anaconda.com/) environment using packages from `conda-forge` channel is recommended.
 
 ### An example
 
