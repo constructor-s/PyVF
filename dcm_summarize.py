@@ -23,7 +23,7 @@ along with PyVF. If not, see <https://www.gnu.org/licenses/>.
 
 from argparse import ArgumentParser
 import pydicom
-import pyvf.parse
+import pyvf.parse.dcm
 import glob
 import itertools
 from collections import namedtuple
@@ -40,7 +40,7 @@ VFResult = namedtuple("VFResult", ["id", "age", "eye", "md", "psd", "vfi", "ght"
 results = []
 for f in itertools.chain(*map(glob.glob, args.input)):
     dataset = pydicom.dcmread(f)
-    pyvf.parse.dcmanonymize(dataset)
+    pyvf.parse.dcm.dcmanonymize(dataset)
 
     dob = datetime.datetime.strptime(dataset.PatientBirthDate, "%Y%m%d")
     acquisition = datetime.datetime.strptime(dataset.AcquisitionDateTime, "%Y%m%d%H%M%S.%f")
@@ -49,10 +49,10 @@ for f in itertools.chain(*map(glob.glob, args.input)):
         id=dataset.PatientID,
         age=(acquisition-dob).days,
         eye=dataset.Laterality,
-        md=float(dataset[pyvf.parse.SFA_DCM_MD].value),
-        psd=float(dataset[pyvf.parse.SFA_DCM_PSD].value),
-        vfi=float(dataset[pyvf.parse.SFA_DCM_VFI].value),
-        ght=dataset[pyvf.parse.SFA_DCM_GHT].value
+        md=float(dataset[pyvf.parse.dcm.SFA_DCM_MD].value),
+        psd=float(dataset[pyvf.parse.dcm.SFA_DCM_PSD].value),
+        vfi=float(dataset[pyvf.parse.dcm.SFA_DCM_VFI].value),
+        ght=dataset[pyvf.parse.dcm.SFA_DCM_GHT].value
     )
     results.append(result)
 
