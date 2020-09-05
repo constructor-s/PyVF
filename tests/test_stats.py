@@ -103,7 +103,11 @@ class Testrv_histogram2(TestCase):
     def test_zero(self):
         height = np.array([0.0, 0.0])
         bins = np.array([-1.0, 0.0, 1.0])
-        histogram1 = stats.rv_histogram2(histogram=(height, bins))
+
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            histogram1 = stats.rv_histogram2(histogram=(height, bins))
         print(histogram1)
 
     def test_refined(self):

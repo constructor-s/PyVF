@@ -71,7 +71,7 @@ class FunctionResponder(Responder):
 
 class RampResponder(FunctionResponder):
     def __init__(self, true_threshold, fp=0.05, fn=0.05, width=4, seed=None):
-        """
+        r"""
         Function shape and default values based on Turpin 2003
 
         Parameters
