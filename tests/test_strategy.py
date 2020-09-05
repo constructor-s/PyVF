@@ -148,7 +148,10 @@ class TestStrategy(TestCase):
         sequence = [0, 0, 1, 1, 1, 0, 0, 0, 1, 0]
         force_terminate = [0, 1, 0, 0, 0, 0, 1, 0, 0, 0]
 
-        from line_profiler import LineProfiler
+        try:
+            from line_profiler import LineProfiler
+        except ImportError:
+            return
         # Baseline: Total time: 2.07796 s s for N = 10000
         # Numpy: Total time: 2.11567 s
         # Combined 2 x n array: Total time: 1.5246 s

@@ -46,7 +46,10 @@ class Test_POS(TestCase):
         # plt.show()
 
     def test_ramp_profile(self):
-        from line_profiler import LineProfiler
+        try:
+            from line_profiler import LineProfiler
+        except ImportError:
+            return
         # Baseline: Total time: 1.93612 s for N = 20000
         # Optimized separate scalar: Total time: 0.318848 s
         # Use try except: Total time: 0.254423 s
