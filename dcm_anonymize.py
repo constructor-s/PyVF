@@ -23,22 +23,32 @@ You should have received a copy of the GNU General Public License
 along with PyVF. If not, see <https://www.gnu.org/licenses/>.
 """
 
-from argparse import ArgumentParser
+import pyvf.parse.dcm
 import pydicom
-import pyvf.parse
+import hashlib
+from argparse import ArgumentParser
 
 parser = ArgumentParser("Anonymize Zeiss Forum HFA visual field data")
 parser.add_argument("-i", "--input", type=str, required=True)
 parser.add_argument("-o", "--output", type=str, required=True)
 args = parser.parse_args()
 
-dataset = pydicom.dcmread(args.input)
-pyvf.parse.dcmanonymize(dataset)
-print(dataset.AcquisitionDateTime)
-print(dataset[pyvf.parse.SFA_DCM_MD])
-print(dataset[pyvf.parse.SFA_DCM_MDSIG])
-print(dataset[pyvf.parse.SFA_DCM_PSD])
-print(dataset[pyvf.parse.SFA_DCM_PSDSIG])
-print(dataset[pyvf.parse.SFA_DCM_GHT])
-print(dataset[pyvf.parse.SFA_DCM_VFI])
-dataset.save_as(args.output)
+with open(args.input, "rb") as inp:
+    dcm_parser = pyvf.parse.dcm.HFADCMParser(inp)
+dcm_parser = dcm_parser.anonymize(anonymization_fun=lambda x:
+                b"" if isinstance(x, bytes)
+                else "Anonymous^Anonymous" if isinstance(x, pydicom.valuerep.PersonName)
+                else hashlib.sha1(str(x).zfill(16).encode("UTF-8")).hexdigest())
+dcm_parser.save_as(args.output)
+print(dcm_parser.name)
+print(dcm_parser.id)
+print(dcm_parser.dob)
+print(dcm_parser.pdf_parser.vf)
+print(dcm_parser.pdf_parser.td)
+print(dcm_parser.pdf_parser.pd)
+print(dcm_parser.md)
+print(dcm_parser.mdsig)
+print(dcm_parser.psd)
+print(dcm_parser.psdsig)
+print(dcm_parser.vfi)
+print(dcm_parser.ght)
