@@ -16,14 +16,26 @@ Currently there is no active plan to interface with commercial perimeters for re
 
 See [`requirements.txt`](requirements.txt). Latest version of Python (3.8) installed using an [Anaconda](https://www.anaconda.com/) environment using packages from `conda-forge` channel is recommended.
 
-### An example
+### Simulation example
 
 This performs a simulation of testing a range of true thresholds of a perfect responder, with a range of starting thresholds, using a 4-2 double staircase algorithm, on a single location. 
 
-```
+```shell
 git clone https://github.com/constructor-s/PyVF.git
 cd PyVF
 python sim_ds_single_perfect.py
+```
+
+### Parsing example
+
+Summarize Zeiss FORUM DICOM exports into CSV table:
+
+```shell
+# In a Python 3.8 virtual environment
+git clone https://github.com/constructor-s/PyVF.git
+cd PyVF
+pip install . # or pip install git+https://github.com/constructor-s/PyVF.git
+python dcm_summarize.py --input path/to/data/*.dcm --output output.csv
 ```
 
 ## Select References
