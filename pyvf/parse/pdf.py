@@ -216,19 +216,25 @@ class HFAPDFParser:
         -------
         A list of visual field thresholds as float. "<0" are converted to -1.0
         """
-        value_list = self.get_value_list("Total Deviation", offset_start=-self.n_td_loc-self.n_td_loc-self.n_vf_loc, length=self.n_vf_loc)
+        #value_list = self.get_value_list("Total Deviation", offset_start=-self.n_td_loc-self.n_td_loc-self.n_vf_loc, length=self.n_vf_loc)
+        value_list = self.get_value_list("30°", offset_start=3, length=self.n_vf_loc) # Indexing with 30°
         values = [float(i) if i != "<0" else -1 for i in value_list]
         assert all(map(lambda x: x>=-1, values))
         return values
 
     @property
     def td(self):
-        value_list = self.get_value_list("Total Deviation", offset_start=-self.n_td_loc-self.n_td_loc, length=self.n_td_loc)
+        #value_list = self.get_value_list("Total Deviation", offset_start=-self.n_td_loc-self.n_td_loc, length=self.n_td_loc)
+        value_list = self.get_value_list("30°", offset_start=3+self.n_vf_loc, length=self.n_td_loc) # Indexing with 30°
         return [float(i) for i in value_list]
 
     @property
     def pd(self):
-        value_list = self.get_value_list("Pattern Deviation", offset_start=-1-self.n_td_loc, length=self.n_td_loc)
+        #value_list = self.get_value_list("Pattern Deviation", offset_start=-1-self.n_td_loc, length=self.n_td_loc)
+        if "MD Threshold exceeded." in self.text_sequences: # Deal with No PD cases
+            value_list = []
+        else:
+            value_list = self.get_value_list("30°", offset_start=3+self.n_vf_loc+self.n_td_loc, length=self.n_td_loc) # Indexing with 30°
         return [float(i) for i in value_list]
 
     @property

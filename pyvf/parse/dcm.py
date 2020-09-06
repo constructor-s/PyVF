@@ -121,11 +121,17 @@ class HFADCMParser:
 
     @property
     def fixation_loss_error(self):
-        return self.dataset[SFA_DCM_FL_ERROR].value
+        if SFA_DCM_FL_ERROR in self.dataset: #check if the tag exists
+            return self.dataset[SFA_DCM_FL_ERROR].value
+        else:
+            return 0
 
     @property
     def fixation_loss_total(self):
-        return self.dataset[SFA_DCM_FL_TOTAL].value
+        if SFA_DCM_FL_TOTAL in self.dataset: #check if the tag exists
+            return self.dataset[SFA_DCM_FL_TOTAL].value
+        else:
+            return 1
 
     @property
     def fixation_loss(self):
