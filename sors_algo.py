@@ -28,7 +28,8 @@ along with PyVF. If not, see <https://www.gnu.org/licenses/>.
 from pyvf.strategy import PATTERN_P24D2
 from pyvf.plot import VFPlotManager
 
-from sklearn.model_selection import GroupShuffleSplit
+from sklearn.model_selection import GroupShuffleSplit, PredefinedSplit
+import scipy.stats
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -42,7 +43,8 @@ parser = argparse.ArgumentParser(description='Train and plot the results of SORS
 parser.add_argument('--load', type=str, help='Load a previously trained session using dill.load_session instead of training')
 parser.add_argument('--md-upper', type=float, help='Filter fields with an MD upper bound')
 parser.add_argument('--md-lower', type=float, help='Filter fields with an MD lower bound')
-parser.add_argument('--suffix', type=str, default="", help='Suffix to plot titles')
+parser.add_argument('--split-by', type=str, default=None, help='Split test train based on predefined sorted sequence of variable')
+parser.add_argument('--suffix', type=str, default="''", help='Suffix to plot titles')
 args = parser.parse_args()
 
 
@@ -60,11 +62,24 @@ if not args.load:
     Omega_train_all = []
     D_train_all = []
     n_splits = 10
-    random_state = 0
-    train_test_splits = tuple(GroupShuffleSplit(n_splits=n_splits, random_state=random_state)
-                              .split(X=VF_THRESHOLD, y=None, groups=VF_THRESHOLD_INFO["STUDY_SITE_ID"]))
+    if args.split_by is None:
+        random_state = 0
+        train_test_splits = tuple(GroupShuffleSplit(n_splits=n_splits, random_state=random_state)
+                                  .split(X=VF_THRESHOLD, y=None, groups=VF_THRESHOLD_INFO["STUDY_SITE_ID"]))
+    else:
+        val = VF_THRESHOLD_INFO[args.split_by].values
+        val_rank = scipy.stats.rankdata(val)
+        group_size = np.ceil(len(val_rank) * 1.0 / n_splits)
+        test_fold = np.floor(val_rank / group_size)
+        train_test_splits = tuple(PredefinedSplit(test_fold=test_fold)
+                                  .split(X=VF_THRESHOLD, y=None))
+
     for train_i, test_i in train_test_splits:
         print(f"{len(train_i) = }, {len(test_i) = })")
+        print(f"{VF_THRESHOLD_INFO[['SITE', 'MD', 'AGE', 'IOP']].iloc[train_i].describe() = }")
+        print(f"{VF_THRESHOLD[train_i].mean() = }")
+        print(f"{VF_THRESHOLD_INFO[['SITE', 'MD', 'AGE', 'IOP']].iloc[test_i].describe() = }")
+        print(f"{VF_THRESHOLD[test_i].mean() = }")
 
         # Implementation of SORS training algorithm in "Algorithm 1"
         # Designed to be an accurate line by line translation, not for efficiency
@@ -139,46 +154,60 @@ fig.savefig("SORS.pdf")
 
 def plot_performance():
     rows = 2
-    cols = 1
-    fig, axes = plt.subplots(rows, cols, figsize=(8.5, 11), sharex=True, sharey=True)
+    cols = 2
+    fig, axes = plt.subplots(rows, cols, figsize=(11, 8.5), sharex=True, sharey=True)
 
     train_perf_all = []
+    train_bias_all = []
     test_perf_all = []
+    test_bias_all = []
     for (train_i, test_i), omega, d in zip(train_test_splits, Omega_train_all, D_train_all):
         X_train = VF_THRESHOLD[train_i].T
         X_test = VF_THRESHOLD[test_i].T
 
         train_perf = []
+        train_bias = []
         test_perf = []
+        test_bias = []
 
         for k in range(1, S+1):  # Using k points to reconstruct
             omega_k = omega[:k]
             D = d[k-1]
 
-            def reconstruct_rmse(X):
+            def reconstruct_error(X):
                 Y = X[omega_k, :]
                 X_hat = D.dot(Y)
                 error = X_hat - X
-                return np.sqrt(np.mean(error ** 2.0))
+                return error
+
+            def reconstruct_rmse(X):
+                return np.sqrt(np.mean(reconstruct_error(X) ** 2.0))
 
             rmse_train = reconstruct_rmse(X_train)
             rmse_test = reconstruct_rmse(X_test)
 
             train_perf.append(rmse_train)
+            train_bias.append(np.mean(reconstruct_error(X_train)))
             test_perf.append(rmse_test)
+            test_bias.append(np.mean(reconstruct_error(X_test)))
 
         train_perf_all.append(train_perf)
+        train_bias_all.append(train_bias)
         test_perf_all.append(test_perf)
+        test_bias_all.append(test_bias)
 
-    for ax, perf_all, tit, xlab in zip(axes.ravel(), (train_perf_all, test_perf_all),
-                                       ("Training", "Testing"), ("", "Number of locations used as reconstruction input")):
+    for ax, perf_all, tit, xlab, ylab in zip(axes.ravel(), (train_perf_all, train_bias_all, test_perf_all, test_bias_all),
+                                       ("Training", "Training", "Testing", "Training"),
+                                       ("", "", "Number of locations used as reconstruction input", "Number of locations used as reconstruction input"),
+                                       ("RMSE", "mean(Predict - Actual)", "RMSE", "mean(Predict - Actual)")):
         xx = np.arange(1, S+1)
         ax.plot(xx, np.array(perf_all).T, '--', alpha=0.5)
         ax.grid(True)
         ax.set_xticks(np.arange(0, 54.1, 6))
         ax.set_xlabel(xlab)
-        ax.set_ylabel("Point-wise RMSE (dB)")
-        ax.set_title(tit + args.suffix)
+        ax.set_ylabel(ylab)
+        ax.set_title(tit + eval(args.suffix))
+    axes.ravel()[-1].legend([str(i) for i in range(len(perf_all))], loc="upper right")
 
     return fig, axes
 
