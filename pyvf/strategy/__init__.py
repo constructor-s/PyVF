@@ -75,6 +75,10 @@ PATTERN_P24D2 = _load_saplocmap("saplocmap_p24d2.csv")
 PATTERN_P30D2 = _load_saplocmap("saplocmap_p30d2.csv")
 PATTERN_P10D2 = _load_saplocmap("saplocmap_p10d2.csv")
 
+PATTERN_P24D2_OS = PATTERN_P24D2.copy(); PATTERN_P24D2_OS["xod"] = -1 * PATTERN_P24D2_OS["xod"]
+PATTERN_P30D2_OS = PATTERN_P30D2.copy(); PATTERN_P30D2_OS["xod"] = -1 * PATTERN_P30D2_OS["xod"]
+PATTERN_P10D2_OS = PATTERN_P10D2.copy(); PATTERN_P10D2_OS["xod"] = -1 * PATTERN_P10D2_OS["xod"]
+
 STIMULUS_NO_RESPONSE = -1
 STIMULUS_NOT_SEEN = 0
 STIMULUS_SEEN = 1
