@@ -54,6 +54,15 @@ class HFAPDFParser:
                                             input=self.raw_pdf, capture_output=True)
         uncompressed_pdf = uncompress_process.stdout
 
+        # Sometimes there are extra b"\\" (i.e. chr(92)) in uncompressed_pdf but not in snippet
+        # For example, the original PDF is b'\x00*\x005\x00$\x00\\)\x00...'
+        # but the snippet that we have is b"\x00*\x005\x00$\x00)\x00)..."
+        # I am not sure why this is happening, as PDF is very complicated
+        # Below is a not so efficient hack, but hopefully works
+        # Find all PDF bytes that represent literal strings
+        import re
+        snippet_dict = {m.group(0).replace(b"\\", b""): m.group(0) for m in re.finditer(rb"\(.*\)Tj", uncompressed_pdf)}
+
         for snippet in (self.byte_sequences[self.text_sequences.index("Patient:") + 1],
                         self.byte_sequences[self.text_sequences.index("Patient ID:") + 1],
                         self.byte_sequences[self.text_sequences.index("Date of Birth:") + 1],
@@ -61,7 +70,13 @@ class HFAPDFParser:
             value = anonymization_fun(snippet)
             if isinstance(value, str):
                 value = value.encode("UTF-8")
-            uncompressed_pdf = uncompressed_pdf.replace(b"("+snippet+b")", b"("+value+b")")
+
+            if b"("+snippet+b")Tj" in snippet_dict:
+                uncompressed_pdf = uncompressed_pdf.replace(snippet_dict[b"("+snippet+b")Tj"], b"("+value+b")Tj")
+            elif b"("+snippet+b")Tj" in uncompressed_pdf:
+                uncompressed_pdf = uncompressed_pdf.replace(b"("+snippet+b")Tj", b"("+value+b")Tj")
+            else:
+                raise ValueError("PDF anonymization failed: Cannot locate byte sequence to remove in PDF: " + repr(snippet))
             # Since this PDF is passing through pdftk compression again,
             # we actually don't have to maintain the same byte length
 
