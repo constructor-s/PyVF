@@ -49,34 +49,65 @@ for name, group in df[(df["comment"]!="invalid") & (df["comment"]!="exclude")].g
         if i in (25, 34):
             continue
         ax2 = axin.twiny()
-        ax2.hist(group[f"L{i}"], bins=np.arange(0, 35, 4), orientation='horizontal', color=plt.cm.gray(mpl.colors.Normalize(-10, 40)(group[f"L{i}"].mean())), zorder=-10)
+        ax2.hist(group[f"L{i}"], bins=np.arange(-4, 40.1, 4), orientation='horizontal', color=plt.cm.gray(mpl.colors.Normalize(-35, 45)(group[f"L{i}"].mean())), zorder=-10)
         ax2.set(xticks=())
+        ax2.set_ylim([-1, 40])
         axin.scatter(group["timestamp"], group[f"L{i}"], s=5, c=group[f"L{i}"], cmap=plt.cm.viridis, norm=mpl.colors.Normalize(0, 60), zorder=0)
         lfit = np.poly1d(np.polyfit(pd.to_numeric(group["timestamp"]), group[f"L{i}"], 1))
-        axin.plot(group["timestamp"], lfit(pd.to_numeric(group["timestamp"])), 'k--', linewidth=1)
+        axin.plot(group["timestamp"], lfit(pd.to_numeric(group["timestamp"])), 'k--', linewidth=1, zorder=10)
+        axin.set_ylim([-1, 40])
+
+    if name[1].upper() == "OD":
+        top_left_i = 0
+    elif name[1].upper() == "OS":
+        top_left_i = 3
+    else:
+        raise ValueError(f"{name} is invalid")
+    plotter.axins[top_left_i].tick_params(labelleft=True, labeltop=True)
+    plotter.axins[top_left_i].set(xticks=group["timestamp"].iloc[[0, -1]], yticks=np.arange(0, 40.1, 10))
+    plotter.axins[top_left_i].set_xlabel("Threshold (dB)")
+    plt.setp(plotter.axins[top_left_i].get_xticklabels(), rotation=90)
 
     axi = inset_axes(plotter.ax, width="100%", height="100%", loc=3,
-                     bbox_to_anchor=(0.02, 0.02, 0.27, 0.17), bbox_transform=plotter.ax.transAxes,
+                     bbox_to_anchor=(0.03, 0.02, 0.26, 0.17), bbox_transform=plotter.ax.transAxes,
                      borderpad=0, axes_kwargs={"zorder": 10})
-    axi.plot(group["timestamp"], group["md"], "--.")
+    axi.scatter(group["timestamp"], group["md"], s=5, c=group["md"], marker="s", cmap=plt.cm.viridis, norm=mpl.colors.Normalize(-30, 30), zorder=0)
+    axi.legend(fontsize="small", facecolor="None", edgecolor="None", title="MD")
+    lfit = np.poly1d(np.polyfit(pd.to_numeric(group["timestamp"]), group["md"], 1))
+    axi.plot(group["timestamp"], lfit(pd.to_numeric(group["timestamp"])), 'k--', linewidth=1, zorder=+20)
     ylim = axi.get_ylim()
-    axi.legend(["MD"], framealpha=0.1)
     axi.set_xticks(group["timestamp"].iloc[[0, -1]])
+    plt.setp(axi.get_xticklabels(), rotation=90)
     ax2 = axi.twiny()
-    ax2.hist(group["md"], bins=np.arange(np.floor(group["md"].min()), np.ceil(group["md"].max()), 1.0), orientation='horizontal', color=(0.7, 0.7, 0.7))
+    ax2.hist(group["md"],
+             bins=np.arange(min(-30, np.floor(group["md"].min())), max(0, np.ceil(group["md"].max()))+2, 1.0),
+             orientation='horizontal', color=plt.cm.gray(mpl.colors.Normalize(-45, 15)(group["md"].mean())),
+             zorder=-10)
     ax2.set(xticks=())
+    ax2.grid(axis="y", linestyle="dashed")
+
+    axi = inset_axes(plotter.ax, width="100%", height="100%", loc=3,
+                     bbox_to_anchor=(0.73, 0.02, 0.26, 0.17), bbox_transform=plotter.ax.transAxes,
+                     borderpad=0, axes_kwargs={"zorder": 10})
+    axi.scatter(group["timestamp"], group["psd"], s=5, c=group["psd"], marker="s", cmap=plt.cm.viridis_r,
+                norm=mpl.colors.Normalize(-20, 20), zorder=0)
+    axi.legend(fontsize="small", facecolor="None", edgecolor="None", title="PSD")
+    lfit = np.poly1d(np.polyfit(pd.to_numeric(group["timestamp"]), group["psd"], 1))
+    axi.plot(group["timestamp"], lfit(pd.to_numeric(group["timestamp"])), 'k--', linewidth=1, zorder=+20)
+    ylim = axi.get_ylim()
+    axi.set_xticks(group["timestamp"].iloc[[0, -1]])
+    plt.setp(axi.get_xticklabels(), rotation=90)
+    ax2 = axi.twiny()
+    ax2.hist(group["psd"],
+             bins=np.arange(min(0, np.floor(group["psd"].min())), max(20, np.ceil(group["psd"].max())) + 2, 1.0),
+             orientation='horizontal', color=plt.cm.gray_r(mpl.colors.Normalize(-10, 30)(group["psd"].mean())),
+             zorder=-10)
+    ax2.set(xticks=())
+    ax2.grid(axis="y", linestyle="dashed")
 
     fig.show()
     # fig.savefig(Path(args.output_folder) / ("-".join(name)+".pdf"))
     # fig.savefig(Path(args.output_folder) / ("-".join(name)+".png"), dpi=300)
     plt.close(fig)
 
-    # fig, ax = plt.subplots(1, 1, figsize=(8.5, 8.5))
-    # median =
-
     break
-
-
-
-    # if name != "01":
-    #     break

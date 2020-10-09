@@ -70,6 +70,7 @@ for d in args.input_folders:
                           eye=eye,
                           path=str(test_data_file),
                           md=model.get_md(thresholds),
+                          psd=model.get_psd(thresholds),
                           **{
                               f"L{i}": v for i, v in enumerate(thresholds)
                           }
