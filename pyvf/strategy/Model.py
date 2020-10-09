@@ -25,15 +25,39 @@ along with PyVF. If not, see <https://www.gnu.org/licenses/>.
 """
 
 import numpy as np
-
+import warnings
 from pyvf.strategy import XOD, YOD, PATTERN_P24D2
 
+
+def wtd_var(x, weights=None, normwt=False):
+    '''
+    https://github.com/harrelfe/Hmisc/blob/8bbb192103e0091398cb58b257ed590e481cfa35/R/wtd.stats.s#L15
+    TODO: Previous note: This function does not produce the exact same result as the R package, but accurate within 0.1 dB so good for our purpose for now
+    This implementation is consistent with the definition of weighted variance with frequency weights
+    # https://en.wikipedia.org/wiki/Weighted_arithmetic_mean#Frequency_weights
+    but slightly different from described in Heijl's A package for the statistical analysis of visual fields
+    The weights passed in should be the inverse of variances, not standard deviations.
+    The return is variance (i.e. square of PSD), not standard deviation
+    '''
+    if weights is None:
+        return np.var(x)
+
+    if normwt:
+        weights = weights * len(x) * 1.0 / np.sum(weights)  # Normalizes sum(weights) to len(x) = n
+
+    sw = np.sum(weights)
+    if sw <= 1:
+        warnings.warn('only one effective observation; variance estimate undefined')
+
+    xbar = np.sum(weights * x) * 1.0 / sw # This is essentially MD
+    ret = np.sum(weights * ((x - xbar) ** 2)) * 1.0 / (sw - 1)
+    return ret
 
 class Model:
     """
     Base class for models for calculating normal healthy population threshold values
     """
-    def __init__(self, eval_pattern, age=None, *args, **kwargs):
+    def __init__(self, eval_pattern, age=None, gh_percentile=0.85, *args, **kwargs):
         """
 
         Parameters
@@ -47,6 +71,7 @@ class Model:
         self.param = kwargs
         self.param['eval_pattern'] = eval_pattern
         self.param['age'] = age
+        self.param['gh_percentile'] = gh_percentile
 
     def get_mean(self):
         raise NotImplementedError()
@@ -55,7 +80,23 @@ class Model:
         raise NotImplementedError()
 
     def get_td(self, vf):
-        return vf - self.get_mean()
+        td = vf - self.get_mean()
+        std = self.get_std()
+        # If std is non-positive or NaN then it is excluded -
+        # usually this is used to indicate two locations near blindspots
+        non_blindspot = std > 0
+        td[~non_blindspot] = np.nan
+        return td
+
+    def get_pd(self, vf):
+        td = self.get_td(vf)
+        std = self.get_std()
+        non_blindspot = std > 0
+        td_nbs = td[non_blindspot]
+        # TODO: Make sure general height is calculated at 85% percentile without blindspots, though the difference is likely insignificant anyways
+        general_height = np.percentile(td_nbs, self.param['gh_percentile'] * 100)
+        pd = td - general_height
+        return pd
 
     def get_md(self, vf):
         std = self.get_std()
@@ -67,6 +108,28 @@ class Model:
 
         return np.dot(weights, self.get_td(vf)[non_blindspot])
 
+    def get_psd(self, vf):
+        std = self.get_std()
+        non_blindspot = std > 0
+
+        std = std[non_blindspot]
+        weights = 1.0 / (std ** 2)
+
+        # Weighted standard deviation of TD (i.e. Turpin)
+        # Weight is normalized by wtd_var
+        return np.sqrt(wtd_var(self.get_td(vf)[non_blindspot], weights, normwt=True))
+
+        # Non-weighted standard deviation of TD, which is similar to above
+        # return self.get_td(vf)[non_blindspot].std()
+
+        # "Heijl package" original formula - seems to overestimate
+        # N = len(std)
+        # md = self.get_md(vf)
+        # td = self.get_td(vf)[non_blindspot]
+        # psd_squared = 1.0 / N * np.sum(std ** 2) / (N-1) * np.sum(
+        #     ((td - md) ** 2) * weights
+        # )
+        # return np.sqrt(psd_squared)
 
 class AgeLinearModel(Model):
     def __init__(self, eval_pattern, age, model_pattern, intercept, slope, std=None, *args, **kwargs):
