@@ -108,28 +108,36 @@ class Model:
 
         return np.dot(weights, self.get_td(vf)[non_blindspot])
 
-    def get_psd(self, vf):
+    def get_psd(self, vf=None, td_nbs=None, md=None, method="turpin"):
         std = self.get_std()
         non_blindspot = std > 0
 
         std = std[non_blindspot]
         weights = 1.0 / (std ** 2)
 
-        # Weighted standard deviation of TD (i.e. Turpin)
-        # Weight is normalized by wtd_var
-        return np.sqrt(wtd_var(self.get_td(vf)[non_blindspot], weights, normwt=True))
+        if td_nbs is None:
+            td_nbs = self.get_td(vf)[non_blindspot]
 
-        # Non-weighted standard deviation of TD, which is similar to above
-        # return self.get_td(vf)[non_blindspot].std()
+        if method.lower() == "turpin":
+            # Weighted standard deviation of TD (i.e. Turpin)
+            # Weight is normalized by wtd_var
+            return np.sqrt(wtd_var(td_nbs, weights, normwt=True))
+        elif method.lower() == "non-weighted":
+            # Non-weighted standard deviation of TD, which is similar to above
+            return td_nbs.std()
+        elif method.lower() == "heijl":
+            # "Heijl package" original formula - seems to overestimate
+            N = len(std)
+            if md is None:
+                md = self.get_md(vf)
+            td = td_nbs
+            psd_squared = 1.0 / N * np.sum(std ** 2) / (N-1) * np.sum(
+                ((td - md) ** 2) * weights
+            )
+            return np.sqrt(psd_squared)
+        else:
+            raise ValueError("Invalid method: " + method)
 
-        # "Heijl package" original formula - seems to overestimate
-        # N = len(std)
-        # md = self.get_md(vf)
-        # td = self.get_td(vf)[non_blindspot]
-        # psd_squared = 1.0 / N * np.sum(std ** 2) / (N-1) * np.sum(
-        #     ((td - md) ** 2) * weights
-        # )
-        # return np.sqrt(psd_squared)
 
 class AgeLinearModel(Model):
     def __init__(self, eval_pattern, age, model_pattern, intercept, slope, std=None, *args, **kwargs):
