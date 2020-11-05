@@ -9,15 +9,23 @@ from collections import namedtuple
 from pathlib import Path
 from argparse import ArgumentParser
 from pandas.api.types import CategoricalDtype
+import scipy.stats
+import bs4
 
 parser = ArgumentParser()
 parser.add_argument("-i", "--input-folders", required=True, nargs="+", type=str, help="Folder containing all subject folders each containing test folders")
 parser.add_argument("-o", "--output", required=True, type=str, help="CSV output")
 args = parser.parse_args()
 
-field_names = ["id", "comment", "timestamp", "dob", "duration", "eye", "pattern", "strategy", "md", "psd", "vfi", "ght", "path"]
+field_names = ["id", "comment", "timestamp", "dob", "duration", "eye", "pattern", "strategy",
+               "fl_error", "fl_total", "fp_error", "fp_total", "fn_error", "fn_total",
+               "md", "psd", "vfi", "ght", "path"]
 field_names.extend([f"L{i}" for i in range(54)])
+field_names.extend([f"TDp{i}" for i in range(54)])
+field_names.extend([f"PDp{i}" for i in range(54)])
 defaults = ["", "", np.nan, np.nan, np.nan, "", "", "", np.nan, np.nan, np.nan, "", ""]
+defaults.extend([np.nan for _ in range(54)])
+defaults.extend([np.nan for _ in range(54)])
 defaults.extend([np.nan for _ in range(54)])
 SummaryEntry = namedtuple("SummaryEntry", field_names=field_names, defaults=defaults)
 
@@ -41,6 +49,15 @@ for d in args.input_folders:
         with open(test_data_file) as f:
             data = json.load(f)
 
+        if (test_data_file.parent / "index.html").exists():
+            with open(test_data_file.parent / "index.html") as f:
+                soup = bs4.BeautifulSoup(f.read(), "html.parser")
+            vfi = float(soup.find(id="vfi_val").string.strip("%"))
+            ght = soup.find(id="ght_val").string
+        else:
+            vfi = np.nan
+            ght = ""
+
         test_start = next(i for i in data["data"] if i.get("message", None) == "Test start")
         test_stop = next(i for i in reversed(data["data"]) if i.get("message", None) == "Test stop")
 
@@ -62,6 +79,9 @@ for d in args.input_folders:
         )
 
         thresholds = tuple(float(loc[3]) for loc in data["locations"])
+        kwargs = {f"L{i}": v for i, v in enumerate(thresholds)}
+        kwargs.update({f"TDp{i}": v for i, v in enumerate(scipy.stats.norm.cdf(model.get_td(thresholds)* 1.0 / model.get_std()))})
+        kwargs.update({f"PDp{i}": v for i, v in enumerate(scipy.stats.norm.cdf(model.get_pd(thresholds)* 1.0 / model.get_std()))})
         se = SummaryEntry(id=p.name,
                           comment="/".join(comments),
                           timestamp=test_datetime,
@@ -71,10 +91,15 @@ for d in args.input_folders:
                           path=str(test_data_file),
                           md=model.get_md(thresholds),
                           psd=model.get_psd(thresholds),
-                          **{
-                              f"L{i}": v for i, v in enumerate(thresholds)
-                          }
-                          )
+                          vfi=vfi,
+                          ght=ght,
+                          fl_error=int(data["reliability"]["fixationLossCatch"]),
+                          fl_total=int(data["reliability"]["fixationLossTotal"]),
+                          fp_error=int(data["reliability"]["falsePositiveCatch"]),
+                          fp_total=int(data["reliability"]["falsePositiveTotal"]),
+                          fn_error=int(data["reliability"]["falseNegativeCatch"]),
+                          fn_total=int(data["reliability"]["falseNegativeTotal"]),
+                          **kwargs)
         df_entries.append(se)
 
 df = pd.DataFrame(df_entries)
@@ -82,5 +107,5 @@ for col in ('id', 'comment', 'eye', 'pattern', 'strategy', 'ght'):
     df[col] = df[col].astype('category')
 df["dob"] = pd.to_datetime(df["dob"])
 df = df.sort_values(["id", "eye", "timestamp"])
-df.to_csv(args.output, index=False)
+df.to_csv(args.output, index=False, float_format="%.6g")
 df.to_hdf(args.output+".h5", key='df', mode='w', format="table")
