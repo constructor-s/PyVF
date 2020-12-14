@@ -25,6 +25,9 @@ from unittest import TestCase
 import numpy as np
 
 from pyvf.stats.pos import pos_ramp
+from pyvf.strategy import GOLDMANN_III, STIMULUS_NO_RESPONSE, Stimulus, STIMULUS_TS_NONE, STIMULUS_SEEN, \
+    STIMULUS_NOT_SEEN
+from pyvf.strategy.Responder import PerfectResponder
 
 
 class Test_POS(TestCase):
@@ -62,3 +65,25 @@ class Test_POS(TestCase):
         lp_wrapper(40, 10, 0.1, 0.8, 11)
         with open("test_ramp_profile.py", "w") as f:
             lp.print_stats(stream=f, output_unit=1e-3)
+
+    def test_perfect_responder(self):
+        true_threshold = [0, 20, 40]
+        responder = PerfectResponder(true_threshold)
+
+        get_stimulus = lambda loc, threshold: Stimulus(
+            xod=3.0,
+            yod=3.0,
+            loc=loc,
+            size=GOLDMANN_III,
+            threshold=threshold,
+            response=STIMULUS_NO_RESPONSE,
+            tsdisp=STIMULUS_TS_NONE,
+            tsresp=STIMULUS_TS_NONE
+        )
+        self.assertEqual(responder.get_response(get_stimulus(0, -1.0)).response, STIMULUS_SEEN)
+        self.assertEqual(responder.get_response(get_stimulus(0, +1.0)).response, STIMULUS_NOT_SEEN)
+        self.assertIn(responder.get_response(get_stimulus(0, 0.0)).response, [STIMULUS_NOT_SEEN, STIMULUS_SEEN])
+
+        self.assertEqual(responder.get_response(get_stimulus(2, 40-1.0)).response, STIMULUS_SEEN)
+        self.assertEqual(responder.get_response(get_stimulus(2, 40+1.0)).response, STIMULUS_NOT_SEEN)
+        self.assertIn(responder.get_response(get_stimulus(2, 40+0.0)).response, [STIMULUS_NOT_SEEN, STIMULUS_SEEN])

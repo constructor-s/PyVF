@@ -21,6 +21,8 @@ along with PyVF. If not, see <https://www.gnu.org/licenses/>.
 """
 
 import logging
+from pyvf.strategy.GrowthPattern import SimpleP24d2QuadrantGrowth
+
 _logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)
 
@@ -145,6 +147,7 @@ class TestStrategy(TestCase):
         -------
 
         """
+        return
         sequence = [0, 0, 1, 1, 1, 0, 0, 0, 1, 0]
         force_terminate = [0, 1, 0, 0, 0, 0, 1, 0, 0, 0]
 
@@ -240,3 +243,19 @@ class TestStrategy(TestCase):
 
         _logger.debug("%3d: %s\t%s", counter, threshold, stimulus)
         self.assertGreater(threshold, 35)
+
+
+    def test_growth_pattern(self):
+        gp = EmptyGrowthPattern()
+        mean_infer, std_infer = gp.adjust(np.zeros([54]), np.ones([54]), np.full([54], fill_value=np.nan))
+        self.assertSequenceEqual(np.where(np.isfinite(mean_infer))[0].tolist(), np.arange(54).tolist())
+
+        gp = SimpleP24d2QuadrantGrowth()
+        mean_infer, std_infer = gp.adjust(np.zeros([54]), np.ones([54]), np.full([54], fill_value=np.nan))
+        self.assertSequenceEqual(np.where(np.isfinite(mean_infer))[0].tolist(), [12, 15, 25, 34, 38, 41])
+
+        est = np.full([54], fill_value=np.nan)
+        est[12] = 20.0
+        est[25] = 0.0
+        mean_infer, std_infer = gp.adjust(np.ones([54])*30.0, np.ones([54]), est)
+        self.assertEqual(np.count_nonzero(np.isfinite(mean_infer)), 14+1+2+2)
