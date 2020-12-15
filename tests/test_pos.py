@@ -27,20 +27,23 @@ import numpy as np
 from pyvf.stats.pos import pos_ramp
 from pyvf.strategy import GOLDMANN_III, STIMULUS_NO_RESPONSE, Stimulus, STIMULUS_TS_NONE, STIMULUS_SEEN, \
     STIMULUS_NOT_SEEN
-from pyvf.strategy.Responder import PerfectResponder
+from pyvf.strategy.Responder import PerfectResponder, RampResponder
 
 
 class Test_POS(TestCase):
     def test_ramp(self):
         self.assertAlmostEqual(pos_ramp(0, 10, 0.1, 0.8, 4), 0.1)
-        self.assertAlmostEqual(pos_ramp(10, 10, 0.1, 0.8, 4), 0.5)
+        self.assertAlmostEqual(pos_ramp(10, 10, 0.1, 0.8, 4), 0.45)  # 0.5)
         self.assertAlmostEqual(pos_ramp(40, 10, 0.1, 0.8, 4), 0.8)
 
-        for x, y in zip([0, 8, 9, 10, 11, 40], [0.1, 0.1, 0.3, 0.5, 0.7, 0.7]):
+        # for x, y in zip([0, 8, 9, 10, 11, 40], [0.1, 0.1, 0.3, 0.5, 0.7, 0.7]):
+        for x, y in zip([0, 8.5, 9, 10, 11, 11.5, 40], [0.1, 0.1, 0.2, 0.4, 0.6, 0.7, 0.7]):
             self.assertAlmostEqual(pos_ramp(x, 10, 0.1, 0.7, 3), y)
 
-        self.assertTrue(np.allclose(pos_ramp([0, 8, 9, 10, 11, 40], 10, 0.1, 0.7, 3),
-                                             [0.1, 0.1, 0.3, 0.5, 0.7, 0.7]))
+        # self.assertTrue(np.allclose(pos_ramp([0, 8, 9, 10, 11, 40], 10, 0.1, 0.7, 3),
+        #                                      [0.1, 0.1, 0.3, 0.5, 0.7, 0.7]))
+        self.assertTrue(np.allclose(pos_ramp([0, 8.5, 9, 10, 11, 11.5, 40], 10, 0.1, 0.7, 3),
+                                             [0.1, 0.1, 0.2, 0.4, 0.6, 0.7, 0.7]))
 
         # import matplotlib.pyplot as plt
         # import numpy as np
@@ -49,6 +52,7 @@ class Test_POS(TestCase):
         # plt.show()
 
     def test_ramp_profile(self):
+        return
         try:
             from line_profiler import LineProfiler
         except ImportError:
@@ -87,3 +91,26 @@ class Test_POS(TestCase):
         self.assertEqual(responder.get_response(get_stimulus(2, 40-1.0)).response, STIMULUS_SEEN)
         self.assertEqual(responder.get_response(get_stimulus(2, 40+1.0)).response, STIMULUS_NOT_SEEN)
         self.assertIn(responder.get_response(get_stimulus(2, 40+0.0)).response, [STIMULUS_NOT_SEEN, STIMULUS_SEEN])
+
+    def test_ramp_responder(self):
+        true_threshold = [0, 20, 40]
+        responder = RampResponder(true_threshold, fp=0.05, fn=0.05, width=4)
+
+        get_stimulus = lambda loc, threshold: Stimulus(
+            xod=3.0,
+            yod=3.0,
+            loc=loc,
+            size=GOLDMANN_III,
+            threshold=threshold,
+            response=STIMULUS_NO_RESPONSE,
+            tsdisp=STIMULUS_TS_NONE,
+            tsresp=STIMULUS_TS_NONE
+        )
+
+        self.assertAlmostEqual(responder.probability_of_seeing(get_stimulus(loc=1, threshold=15)), 0.95)
+        self.assertAlmostEqual(responder.probability_of_seeing(get_stimulus(loc=1, threshold=25)), 0.05)
+        self.assertAlmostEqual(responder.probability_of_seeing(get_stimulus(loc=1, threshold=20)), 0.50)
+
+        self.assertAlmostEqual(responder.probability_of_seeing([get_stimulus(loc=1, threshold=0), get_stimulus(loc=2, threshold=0)]), 0.95)
+        self.assertAlmostEqual(responder.probability_of_seeing([get_stimulus(loc=1, threshold=50), get_stimulus(loc=2, threshold=50)]), 0.05)
+        self.assertAlmostEqual(responder.probability_of_seeing([get_stimulus(loc=1, threshold=20), get_stimulus(loc=2, threshold=40)]), (3-2*0.05)/4.0)

@@ -21,7 +21,8 @@ You should have received a copy of the GNU General Public License
 along with PyVF. If not, see <https://www.gnu.org/licenses/>.
 """
 
-from pyvf.strategy import ZestStrategy, PATTERN_P24D2, XOD, YOD, TSDISP
+from pyvf.strategy import ZestStrategy, PATTERN_P24D2, XOD, YOD, TSDISP, Stimulus, STIMULUS_SEEN, STIMULUS_NOT_SEEN, \
+    RESPONSE, ZestMSPStrategy
 from pyvf.strategy.GrowthPattern import SimpleP24d2QuadrantGrowth
 from pyvf.strategy.Model import ConstantModel, AgeLinearModel, Heijl1987p24d2Model
 from pyvf.strategy.Responder import RampResponder, PerfectResponder
@@ -70,7 +71,7 @@ if __name__ == '__main__':
         for rep in range(repeats):
             responder = RampResponder(true_threshold=true_thresholds, fp=0.15, fn=0.15, width=4, seed=i*rep)
             model = Heijl1987p24d2Model(eval_pattern=PATTERN_P24D2, age=info.AGE)
-            strategy = ZestStrategy(
+            strategy = ZestMSPStrategy(
                 pattern=PATTERN_P24D2,
                 blindspot=[25, 34],
                 model=model,
@@ -85,17 +86,37 @@ if __name__ == '__main__':
                 stimulus, threshold = strategy.get_stimulus_threshold(data)
                 if stimulus is None:
                     break  # Test is finished
-                else:
-                    stimulus = stimulus.copy(**{TSDISP: counter})
-                    stimulus = responder.get_response(stimulus)
+                else:  # isinstance(stimulus, Stimulus):  # Single stimulus perimetry
                     # _logger.debug("%3d: %s\t%s", counter, threshold, stimulus)
-                    data.append(stimulus)
-                    counter += 1
+                    if isinstance(stimulus, Stimulus):
+                        stimulus = stimulus.copy(**{TSDISP: counter})
+                        stimulus = responder.get_response(stimulus)
+                        data.append(stimulus)
+                    elif isinstance(stimulus[0], Stimulus):
+                        stimulus = [s.copy(**{TSDISP: counter}) for s in stimulus]
+                        stimulus = responder.get_response(stimulus)
+                        data.extend(stimulus)
+                    else:
+                        raise ValueError(f"Invalid stimulus object or list of stimuli: {stimulus}")
+                # else:  # Multiple stimulus perimetry
+                #     total_response = STIMULUS_NOT_SEEN
+                #     individual_responded = []
+                #     for s in stimulus:
+                #         s = s.copy(**{TSDISP: counter})
+                #         s = responder.get_response(s)
+                #         total_response |= s.response  # Consider total response as an "OR" on individual stimulus
+                #         individual_responded.append(s)
+                #     for s in individual_responded:
+                #         data.append(s.copy(**{RESPONSE: total_response}))
+                counter += 1
+
 
             res = [field_id, rep, len(data)]
             res.extend(threshold)
             res = FieldSimulationResult(*res)
             results.append(res)
+
+        break
 
     output_df = pd.DataFrame(results)
     output_df.to_csv("zest_simulate_rotterdam.csv", index=False)

@@ -41,7 +41,8 @@ def pos_ramp(x, center, yl, yr, width):
     https://doi.org/10.1167/iovs.03-0023
     """
     # First calculate if fp and fn are both zero
-    yc = 0.5  # by definition the center is p = 0.5
+    # yc = 0.5  # by definition the center is p = 0.5
+    yc = 0.5 * (yl + yr)  # Alternative definition: center is the rotational symmetric point between left and right
 
     xl = center - 1.0 * (yc - yl) / (yr - yl) * width  # x left of ramp
     xr = xl + width

@@ -73,6 +73,7 @@ def _load_saplocmap(filename):
 # PATTERN_COLUMNS = ["xod","yod","loc","size","jmangle","jmslope","region"]
 #          X_DEGREES, Y_DEGREES, INDEX, GOLDMANN_SIZE, ???, ???, REGION_LABEL_INT
 PATTERN_SINGLE = np.array([(3, 3, 0, GOLDMANN_III, 205.37, 0.096369, 1)], dtype=[("xod", np.float32),("yod", np.float32),("loc", np.int32),("size", np.float32),("jmangle", np.float32),("jmslope", np.float32),("region", np.int32)])
+PATTERN_DOUBLE = np.array([(3, 3, 0, GOLDMANN_III, 205.37, 0.096369, 1), (3,-3,1,GOLDMANN_III,162.98,-0.091919,1)], dtype=[("xod", np.float32),("yod", np.float32),("loc", np.int32),("size", np.float32),("jmangle", np.float32),("jmslope", np.float32),("region", np.int32)])
 PATTERN_P24D2 = _load_saplocmap("saplocmap_p24d2.csv")
 PATTERN_P30D2 = _load_saplocmap("saplocmap_p30d2.csv")
 PATTERN_P10D2 = _load_saplocmap("saplocmap_p10d2.csv")
@@ -102,7 +103,9 @@ RESPONSE = "response"
 THRESHOLD = "threshold"
 TSDISP = "tsdisp"
 TSRESP = "tsresp"
-_Stimulus = namedtuple("Stimulus", [XOD,YOD,LOC,SIZE,THRESHOLD,RESPONSE,TSDISP,TSRESP])
+MULTI = "multi"  # Set to integer more than 1 for Multiple-Stimulus Perimetry
+_Stimulus = namedtuple("Stimulus", [XOD,YOD,LOC,SIZE,THRESHOLD,RESPONSE,TSDISP,TSRESP,MULTI],
+                       defaults=[np.nan,np.nan,np.nan,GOLDMANN_III,np.nan,STIMULUS_NOT_SEEN,np.nan,np.nan,1])
 class Stimulus(_Stimulus):
     def copy(self, **kwargs):
         new_kwargs = self._asdict()
@@ -126,7 +129,7 @@ class Stimulus(_Stimulus):
 
         """
         dtype = [(XOD, np.float32), (YOD, np.float32), (LOC, np.int32), (SIZE, np.float32), (THRESHOLD, np.float32),
-                 (RESPONSE, np.float32), (TSDISP, np.float32), (TSRESP, np.float32)]
+                 (RESPONSE, np.float32), (TSDISP, np.float32), (TSRESP, np.float32), (MULTI, np.int32)]
         return np.array(data, dtype=dtype)
 
 
@@ -205,7 +208,7 @@ class Strategy:
         )
 
     @staticmethod
-    def trial2pos_ramp(x, center, fn, fp, width, seen):
+    def trial2pos_ramp(x, center, fn, fp, width, seen, multiplicity=1):
         """
 
         Parameters
@@ -213,20 +216,37 @@ class Strategy:
         x : array_like
             Evaluation points
 
+        multiplicity : int
+            For Single Stimulus Perimetry, this is 1.
+            For Multiple Stimulus Perimetry, such as two stimuli presented simultaneously for
+            one yes-no responds, this is 2. The PoS is adjusted assuming the PoS curves for the
+            two stimuli are independent (i.e. if there is 50% responding to stimulus 1 and 50%
+            responding to stimulus 2, then we assume there is 75% responding when both are presented
+            simultaneously)
+
+
         Returns
         -------
         y : array_like
 
         """
-        yl = 1 - fn
-        yr = fp
-
-        y = pos_ramp(x=x, center=center, yl=yl, yr=yr, width=width)
-
-        if seen == STIMULUS_SEEN:
-            return 1 - y
-        else:  # STIMULUS_NOT_SEEN
-            return y
+        if multiplicity == 1:
+            if seen == STIMULUS_SEEN:
+                yl = fp
+                yr = 1 - fn
+            else:  # STIMULUS_NOT_SEEN
+                yl = 1 - fp
+                yr = fn
+        elif multiplicity == 2:
+            if seen == STIMULUS_SEEN:
+                yl = fp + (1 - fn)
+                yr = (1 - fn) * 2
+            else:  # STIMULUS_NOT_SEEN
+                yl = (1 - fp) + fn
+                yr = fn + fn
+        else:
+            raise NotImplementedError()
+        return pos_ramp(x=x, center=center, yl=yl, yr=yr, width=width)
 
 
 class DoubleStaircaseStrategy(Strategy):
@@ -954,5 +974,135 @@ class ZestStrategy(Strategy):
             stimulus = None  # All stimulus has been exhausted
         else:
             stimulus = stimuli_candidates[self.rng.randint(0, len(stimuli_candidates))]
+
+        return stimulus, threshold
+
+
+class ZestMSPStrategy(ZestStrategy):
+    @lru_cache(maxsize=512)
+    def get_current_estimate(self, threshold_sequence, response_sequence, init_mean, multiplicity):
+        if len(response_sequence) == 0:
+            return init_mean, init_mean, np.nan
+        else:
+            # ZEST initial PDF is a weighted combination of abnormal sensitivity prior (constant) and
+            # normal prior (shifted based on age model and current best prior)
+            # The line below is the bottle neck in performance due to slow scipy.stats.rv_histogram.__init__
+            # So we will cache the results
+            init_pdf = (self.coef_abnormal * self.hist_abnormal +
+                        self.coef_normal * self.hist_normal.roll(
+                                                shift=int(round((init_mean - self.center_normal) * self.refine_n)),
+                                                fill_value=self.epsilon))
+            # Calculate the PDF multiplier based on the trial and PoS function
+            trial_height = (ZestMSPStrategy.trial2pos_ramp(x=self.hist_normal.bins[:-1],
+                                                           center=c,
+                                                           fn=self.param["pos_fn"], fp=self.param["pos_fp"],
+                                                           width=self.param["pos_width"],
+                                                           seen=s, multiplicity=multi)
+                                            for c, s, multi in zip(threshold_sequence, response_sequence, multiplicity))
+            # Calculate the product
+            trial_height = reduce(mul, trial_height)
+            # Convert it to a histogram object with the same bins as the prior (hist_normal) object
+            trial_pdf = rv_histogram2(histogram=(trial_height, self.hist_normal.bins))
+            # Multiply the product of all trials with the prior
+            updated_pdf = init_pdf * trial_pdf  # type: rv_histogram2
+
+            # Turpin 2003:
+            # As ZEST returned the mean of the final pdf, which provided a less biased estimate than the mode,8
+            # a slightly different threshold again was re-
+            # turned by ZEST, because of this factor alone.
+            threshold = updated_pdf.mean()
+            # Another implementation is trial_pdf.mode() as in
+            # Watson, A. B., Pelli, D. G., & others. (1979). The QUEST staircase procedure. Applied Vision Association Newsletter, 14, 6–7.
+            # which is not biased by the shape of init_pdf
+
+            # Check termination
+            if updated_pdf.std() < self.param["term_std"]:
+                stimulus_db = np.nan
+                threshold_determined = threshold  # Terminated
+            else:
+                stimulus_db = threshold
+                threshold_determined = np.nan
+
+        return stimulus_db, threshold, threshold_determined
+
+    def get_stimulus_threshold(self, data):
+        data = Stimulus.to_numpy(data)
+        stimuli = [None] * len(self.param['pattern'])  # The next stimulus to be presented
+        threshold = np.full(len(self.param['pattern']), np.nan)  # The current best estimate of point thresholds
+        threshold_determined = threshold.copy()
+
+        model_mean = self.param["model"].get_mean()
+        model_std = self.param["model"].get_std()
+        # Pass the model to growth_pattern such that now in model_mean_pending
+        # all seed points are set to their model value, and
+        # other points that should be tested after the seed points are set to nan
+        model_mean_seeds, _ = self.growth_pattern.adjust(mean=model_mean, std=model_std, mean_est=threshold_determined)
+
+        while True:
+            # Use m = 1 ... M to index SAP locations
+            # Originally used a test_sequence list to rank stimulus test order;
+            # completely replaced by growth pattern
+            # This loop populates stimuli (length M list of next stimulus at each point) and
+            # current best estimated threshold based on the trials (length M array)
+            for (m,) in zip(*np.where(np.isfinite(model_mean_seeds))):
+                # If this point has already been calculated before, then skip it
+                if stimuli[m] is not None or np.isfinite(threshold_determined[m]):
+                    continue
+
+                # Get parameters of current location m
+                location = self.param["pattern"][m]
+
+                # Get subset of relevant data_m
+                data_m = data[data[LOC] == m]  # type: np.ndarray
+
+                response_sequence = data_m[RESPONSE]
+                threshold_sequence = data_m[THRESHOLD]
+                multiplicity_Sequence = data_m[MULTI]
+
+                stimulus_db, threshold_est, threshold_det = self.get_current_estimate(
+                    threshold_sequence=tuple(threshold_sequence),
+                    response_sequence=tuple(response_sequence),
+                    init_mean=model_mean_seeds[m],
+                    multiplicity=tuple(multiplicity_Sequence)
+                )
+                if np.isfinite(stimulus_db):
+                    stimuli[m] = self.get_new_stimulus_at(db=stimulus_db, location=location)
+                else:
+                    stimuli[m] = None
+                threshold[m] = threshold_est
+                threshold_determined[m] = threshold_det
+
+            # recalculate growth pattern to see if more points should be included for testing
+            model_mean_seeds_new, _ = self.growth_pattern.adjust(mean=model_mean, std=model_std, mean_est=threshold_determined)
+            # If any of the nan status has changed - meaning more points can now be tested, we need to repeat
+            if np.any(np.isfinite(model_mean_seeds) != np.isfinite(model_mean_seeds_new)):
+                model_mean_seeds = model_mean_seeds_new
+                continue
+            else:
+                break
+
+        stimuli_candidates_all = [s for s in stimuli if s is not None]
+        stimuli_candidates_by_quadrant = [[], [], [], []]
+        for s in stimuli_candidates_all:
+            x, y = s.xod, s.yod
+            if x > 0 and y > 0:
+                stimuli_candidates_by_quadrant[0].append(s)
+            elif x < 0 and y > 0:
+                stimuli_candidates_by_quadrant[1].append(s)
+            elif x < 0 and y < 0:
+                stimuli_candidates_by_quadrant[2].append(s)
+            else:
+                stimuli_candidates_by_quadrant[3].append(s)
+
+        stimuli_candidates = [x[self.rng.randint(0, len(x))] for x in stimuli_candidates_by_quadrant if len(x) > 0]
+
+        if len(stimuli_candidates) == 0:
+            stimulus = None  # All stimulus has been exhausted
+        elif len(stimuli_candidates) == 1:
+            stimulus = stimuli_candidates[0]
+        else:
+            stimulus1 = stimuli_candidates.pop(self.rng.randint(0, len(stimuli_candidates))).copy(**{MULTI: 2})
+            stimulus2 = stimuli_candidates.pop(self.rng.randint(0, len(stimuli_candidates))).copy(**{MULTI: 2})
+            stimulus = [stimulus1, stimulus2]  # MSP, return as a list, not tuple, since stimulus is a namedtuple
 
         return stimulus, threshold

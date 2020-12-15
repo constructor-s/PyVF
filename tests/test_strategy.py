@@ -259,3 +259,26 @@ class TestStrategy(TestCase):
         est[25] = 0.0
         mean_infer, std_infer = gp.adjust(np.ones([54])*30.0, np.ones([54]), est)
         self.assertEqual(np.count_nonzero(np.isfinite(mean_infer)), 14+1+2+2)
+
+    def test_trial2pos_ramp(self):
+        x = np.arange(41)
+        y_yes = Strategy.trial2pos_ramp(x, center=20, fn=0.1, fp=0.5, width=4, seen=True)
+        y_no = Strategy.trial2pos_ramp(x, center=20, fn=0.1, fp=0.5, width=4, seen=False)
+        self.assertAlmostEqual(y_yes[18], 0.5)
+        self.assertAlmostEqual(y_yes[20], 0.7)
+        self.assertAlmostEqual(y_yes[22], 0.9)
+        self.assertAlmostEqual(y_no[18], 0.5)
+        self.assertAlmostEqual(y_no[20], 0.3)
+        self.assertAlmostEqual(y_no[22], 0.1)
+
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots()
+        """
+        ax.plot(x, y_yes)
+        ax.plot(x, y_no)
+        ax.legend(["Yes", "No"])
+        """
+        ax.plot(x, Strategy.trial2pos_ramp(x, center=20, fn=0.1, fp=0.5, width=4, seen=True, multiplicity=2))
+        ax.plot(x, Strategy.trial2pos_ramp(x, center=20, fn=0.1, fp=0.5, width=4, seen=False, multiplicity=2))
+        ax.grid(True)
+        fig.show()
