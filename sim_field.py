@@ -23,9 +23,12 @@ along with PyVF. If not, see <https://www.gnu.org/licenses/>.
 
 from pyvf.strategy import ZestStrategy, PATTERN_P24D2, XOD, YOD, TSDISP
 from pyvf.strategy.GrowthPattern import SimpleP24d2QuadrantGrowth
-from pyvf.strategy.Model import ConstantModel
+from pyvf.strategy.Model import ConstantModel, AgeLinearModel, Heijl1987p24d2Model
 from pyvf.strategy.Responder import RampResponder, PerfectResponder
+from pyvf.resources.rotterdam2013 import VF_THRESHOLD, VF_THRESHOLD_INFO
 import numpy as np
+import pandas as pd
+from collections import namedtuple
 import logging
 _logger = logging.getLogger(__name__)
 
@@ -41,57 +44,58 @@ def pretty_print_vf(arr, pattern=PATTERN_P24D2):
     print()
 
 
-def main():
+if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
 
-    true_thresholds = np.arange(len(PATTERN_P24D2)) * 0.5
-    print(true_thresholds)
-    pretty_print_vf(true_thresholds, PATTERN_P24D2)
+    # Randomly sample visual field for each eye
+    rng = np.random.RandomState(0)
+    sample_field_info = VF_THRESHOLD_INFO.groupby("STUDY_SITE_ID").apply(lambda x: x.sample(1, random_state=rng))
 
-    responder = PerfectResponder(true_threshold=true_thresholds)
-    model = ConstantModel(eval_pattern=PATTERN_P24D2,
-                          mean=np.full_like(true_thresholds, 30.0),  # Initial guess = population mean
-                          std=4)
-    strategy = ZestStrategy(
-        pattern=PATTERN_P24D2,
-        blindspot=[],
-        model=model,
-        term_std=1.5,
-        rng=0,
-        growth_pattern=SimpleP24d2QuadrantGrowth()
-    )
+    field_names = ["FIELD_ID", "REPEAT", "PRESENTATIONS"]
+    field_names.extend([f"L{i}" for i in range(54)])
+    FieldSimulationResult = namedtuple("FieldSimulationResult", field_names)
 
-    counter = 0
-    data = []
-    while True:
-        if counter % 10 == 0:
-            print(counter)
-        stimulus, threshold = strategy.get_stimulus_threshold(data)
-        if stimulus is None:
-            break  # Test is finished
-        else:
-            stimulus = stimulus.copy(**{TSDISP: counter})
-            stimulus = responder.get_response(stimulus)
-            # _logger.debug("%3d: %s\t%s", counter, threshold, stimulus)
-            data.append(stimulus)
-            counter += 1
+    results = []
 
-    print(strategy.get_current_estimate.cache_info())
-    import matplotlib.pyplot as plt
-    plt.plot(true_thresholds)
-    plt.plot(threshold)
-    plt.show()
+    repeats = 1
+    import time
+    tic = time.perf_counter()
+    for i, info in enumerate(sample_field_info.itertuples()):
+        n = len(sample_field_info)
+        elapsed = time.perf_counter() - tic
+        remaining = 0.0 if i == 0 else elapsed * 1.0 / i * (n-i)
+        print(f"{i}/{n}, e: {elapsed:.0f} sec, r: {remaining:.0f} sec", end="        \r")
+        field_id = info.FIELD_ID
+        true_thresholds = VF_THRESHOLD[field_id]
+        for rep in range(repeats):
+            responder = RampResponder(true_threshold=true_thresholds, fp=0.15, fn=0.15, width=4, seed=i*rep)
+            model = Heijl1987p24d2Model(eval_pattern=PATTERN_P24D2, age=info.AGE)
+            strategy = ZestStrategy(
+                pattern=PATTERN_P24D2,
+                blindspot=[25, 34],
+                model=model,
+                term_std=1.5,
+                rng=0,
+                growth_pattern=SimpleP24d2QuadrantGrowth()
+            )
 
+            counter = 0
+            data = []
+            while True:
+                stimulus, threshold = strategy.get_stimulus_threshold(data)
+                if stimulus is None:
+                    break  # Test is finished
+                else:
+                    stimulus = stimulus.copy(**{TSDISP: counter})
+                    stimulus = responder.get_response(stimulus)
+                    # _logger.debug("%3d: %s\t%s", counter, threshold, stimulus)
+                    data.append(stimulus)
+                    counter += 1
 
-if __name__ == '__main__':
-    main()
-    """
-    from line_profiler import LineProfiler
+            res = [field_id, rep, len(data)]
+            res.extend(threshold)
+            res = FieldSimulationResult(*res)
+            results.append(res)
 
-    lp = LineProfiler()
-    lp.add_function(ZestStrategy.get_stimulus_threshold)
-    lp_wrapper = lp(main)
-    lp_wrapper()
-    with open("output/sim_field_zest_profile.py", "w") as f:
-        lp.print_stats(stream=f, output_unit=1e-3)
-    """
+    output_df = pd.DataFrame(results)
+    output_df.to_csv("zest_simulate_rotterdam.csv", index=False)

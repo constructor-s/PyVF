@@ -808,7 +808,7 @@ class ZestStrategy(Strategy):
     #             self.coef_normal * self.hist_normal.roll(shift=int(round((init_mean - self.center_normal) * self.refine_n)),
     #                                                      fill_value=self.epsilon))
 
-    @lru_cache()
+    @lru_cache(maxsize=512)
     def get_current_estimate(self, threshold_sequence, response_sequence, init_mean):
         if len(response_sequence) == 0:
             return init_mean, init_mean, np.nan
