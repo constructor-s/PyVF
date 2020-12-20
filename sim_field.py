@@ -60,6 +60,9 @@ if __name__ == '__main__':
 
     repeats = 1
     import time
+    import sys
+    import datetime
+    print(datetime.datetime.now())
     tic = time.perf_counter()
     for i, info in enumerate(sample_field_info.itertuples()):
         n = len(sample_field_info)
@@ -89,10 +92,12 @@ if __name__ == '__main__':
                 else:  # isinstance(stimulus, Stimulus):  # Single stimulus perimetry
                     # _logger.debug("%3d: %s\t%s", counter, threshold, stimulus)
                     if isinstance(stimulus, Stimulus):
+                        # sys.stdout.write("S")
                         stimulus = stimulus.copy(**{TSDISP: counter})
                         stimulus = responder.get_response(stimulus)
                         data.append(stimulus)
                     elif isinstance(stimulus[0], Stimulus):
+                        # sys.stdout.write("M")
                         stimulus = [s.copy(**{TSDISP: counter}) for s in stimulus]
                         stimulus = responder.get_response(stimulus)
                         data.extend(stimulus)
@@ -109,14 +114,12 @@ if __name__ == '__main__':
                 #     for s in individual_responded:
                 #         data.append(s.copy(**{RESPONSE: total_response}))
                 counter += 1
+            # print()
 
-
-            res = [field_id, rep, len(data)]
+            res = [field_id, rep, sum([1.0/s.multi for s in data])]
             res.extend(threshold)
             res = FieldSimulationResult(*res)
             results.append(res)
 
-        break
-
     output_df = pd.DataFrame(results)
-    output_df.to_csv("zest_simulate_rotterdam.csv", index=False)
+    output_df.to_csv(f"zest_simulate_rotterdam_{strategy.__class__.__name__}.csv", index=False)

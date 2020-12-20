@@ -189,6 +189,8 @@ class Strategy:
         else:
             self.rng = np.random.RandomState(rng)
 
+        self.extra_data = {}
+
     def get_stimulus_threshold(self, data):
         raise NotImplementedError()
 
@@ -829,175 +831,26 @@ class ZestStrategy(Strategy):
     #                                                      fill_value=self.epsilon))
 
     @lru_cache(maxsize=512)
-    def get_current_estimate(self, threshold_sequence, response_sequence, init_mean):
+    def get_current_estimate(self, threshold_sequence, response_sequence, init_mean, multiplicity=1):
+        if np.isscalar(multiplicity):
+            multiplicity = np.full_like(threshold_sequence, fill_value=multiplicity, dtype=np.int32)
+        # ZEST initial PDF is a weighted combination of abnormal sensitivity prior (constant) and
+        # normal prior (shifted based on age model and current best prior)
+        # The line below is the bottle neck in performance due to slow scipy.stats.rv_histogram.__init__
+        # So we will cache the results
+        init_pdf = (self.coef_abnormal * self.hist_abnormal +
+                    self.coef_normal * self.hist_normal.roll(
+                                            shift=int(round((init_mean - self.center_normal) * self.refine_n)),
+                                            fill_value=self.epsilon))
         if len(response_sequence) == 0:
-            return init_mean, init_mean, np.nan
+            return init_pdf
         else:
-            # ZEST initial PDF is a weighted combination of abnormal sensitivity prior (constant) and
-            # normal prior (shifted based on age model and current best prior)
-            # The line below is the bottle neck in performance due to slow scipy.stats.rv_histogram.__init__
-            # So we will cache the results
-            init_pdf = (self.coef_abnormal * self.hist_abnormal +
-                        self.coef_normal * self.hist_normal.roll(
-                                                shift=int(round((init_mean - self.center_normal) * self.refine_n)),
-                                                fill_value=self.epsilon))
             # Calculate the PDF multiplier based on the trial and PoS function
             trial_height = (ZestStrategy.trial2pos_ramp(x=self.hist_normal.bins[:-1],
-                                                        center=c,
-                                                        fn=self.param["pos_fn"], fp=self.param["pos_fp"],
-                                                        width=self.param["pos_width"],
-                                                        seen=s) for c, s in zip(threshold_sequence, response_sequence))
-            # Calculate the product
-            trial_height = reduce(mul, trial_height)
-            # Convert it to a histogram object with the same bins as the prior (hist_normal) object
-            trial_pdf = rv_histogram2(histogram=(trial_height, self.hist_normal.bins))
-            # Multiply the product of all trials with the prior
-            updated_pdf = init_pdf * trial_pdf  # type: rv_histogram2
-
-            # Turpin 2003:
-            # As ZEST returned the mean of the final pdf, which provided a less biased estimate than the mode,8
-            # a slightly different threshold again was re-
-            # turned by ZEST, because of this factor alone.
-            threshold = updated_pdf.mean()
-            # Another implementation is trial_pdf.mode() as in
-            # Watson, A. B., Pelli, D. G., & others. (1979). The QUEST staircase procedure. Applied Vision Association Newsletter, 14, 6–7.
-            # which is not biased by the shape of init_pdf
-
-            # Check termination
-            if updated_pdf.std() < self.param["term_std"]:
-                stimulus_db = np.nan
-                threshold_determined = threshold  # Terminated
-            else:
-                stimulus_db = threshold
-                threshold_determined = np.nan
-
-        return stimulus_db, threshold, threshold_determined
-
-    def get_stimulus_threshold(self, data):
-        data = Stimulus.to_numpy(data)
-        stimuli = [None] * len(self.param['pattern'])  # The next stimulus to be presented
-        threshold = np.full(len(self.param['pattern']), np.nan)  # The current best estimate of point thresholds
-        threshold_determined = threshold.copy()
-
-        model_mean = self.param["model"].get_mean()
-        model_std = self.param["model"].get_std()
-        # Pass the model to growth_pattern such that now in model_mean_pending
-        # all seed points are set to their model value, and
-        # other points that should be tested after the seed points are set to nan
-        model_mean_seeds, _ = self.growth_pattern.adjust(mean=model_mean, std=model_std, mean_est=threshold_determined)
-
-        while True:
-            # Use m = 1 ... M to index SAP locations
-            # Originally used a test_sequence list to rank stimulus test order;
-            # completely replaced by growth pattern
-            # This loop populates stimuli (length M list of next stimulus at each point) and
-            # current best estimated threshold based on the trials (length M array)
-            for (m,) in zip(*np.where(np.isfinite(model_mean_seeds))):
-                # If this point has already been calculated before, then skip it
-                if stimuli[m] is not None or np.isfinite(threshold_determined[m]):
-                    continue
-
-                # Get parameters of current location m
-                location = self.param["pattern"][m]
-
-                # Get subset of relevant data_m
-                data_m = data[data[LOC] == m]  # type: np.ndarray
-
-                response_sequence = data_m[RESPONSE]
-                threshold_sequence = data_m[THRESHOLD]
-
-                stimulus_db, threshold_est, threshold_det = self.get_current_estimate(
-                    threshold_sequence=tuple(threshold_sequence),
-                    response_sequence=tuple(response_sequence),
-                    init_mean=model_mean_seeds[m]
-                )
-                if np.isfinite(stimulus_db):
-                    stimuli[m] = self.get_new_stimulus_at(db=stimulus_db, location=location)
-                else:
-                    stimuli[m] = None
-                threshold[m] = threshold_est
-                threshold_determined[m] = threshold_det
-
-                """
-                # ZEST initial PDF is a weighted combination of abnormal sensitivity prior (constant) and
-                # normal prior (shifted based on age model and current best prior)
-                # The line below is the bottle neck in performance due to slow scipy.stats.rv_histogram.__init__
-                # So we will cache the results
-                init_pdf = (self.coef_abnormal * self.hist_abnormal +
-                           self.coef_normal * self.hist_normal.roll(shift=int(round((model_mean_seeds[m] - self.center_normal) * self.refine_n)),
-                                                                   fill_value=self.epsilon))
-                            # self.get_init_pdf(init_mean=model_mean_seeds[m])
-                if len(data_m) == 0:
-                    threshold[m] = init_pdf.mean()
-                    stimuli[m] = self.get_new_stimulus_at(db=init_pdf.mean(), location=location)
-                else:
-                    # Calculate the PDF multiplier based on the trial and PoS function
-                    trial_height = (ZestStrategy.trial2pos_ramp(x=self.hist_normal.bins[:-1],
-                                                                center=c,
-                                                                fn=self.param["pos_fn"], fp=self.param["pos_fp"],
-                                                                width=self.param["pos_width"],
-                                                                seen=s) for c, s in zip(threshold_sequence, response_sequence))
-                    # Calculate the product
-                    trial_height = reduce(mul, trial_height)
-                    # Convert it to a histogram object with the same bins as the prior (hist_normal) object
-                    trial_pdf = rv_histogram2(histogram=(trial_height, self.hist_normal.bins))
-                    # Multiply the product of all trials with the prior
-                    updated_pdf = init_pdf * trial_pdf  # type: rv_histogram2
-
-                    # Turpin 2003:
-                    # As ZEST returned the mean of the final pdf, which provided a less biased estimate than the mode,8
-                    # a slightly different threshold again was re-
-                    # turned by ZEST, because of this factor alone.
-                    threshold[m] = updated_pdf.mean()
-                    # Another implementation is trial_pdf.mode() as in
-                    # Watson, A. B., Pelli, D. G., & others. (1979). The QUEST staircase procedure. Applied Vision Association Newsletter, 14, 6–7.
-                    # which is not biased by the shape of init_pdf
-
-                    # Check termination
-                    if updated_pdf.std() < self.param["term_std"]:
-                        threshold_determined[m] = threshold[m]  # Terminated
-                    else:
-                        stimuli[m] = self.get_new_stimulus_at(db=updated_pdf.mean(), location=location)
-                """
-
-            # recalculate growth pattern to see if more points should be included for testing
-            model_mean_seeds_new, _ = self.growth_pattern.adjust(mean=model_mean, std=model_std, mean_est=threshold_determined)
-            # If any of the nan status has changed - meaning more points can now be tested, we need to repeat
-            if np.any(np.isfinite(model_mean_seeds) != np.isfinite(model_mean_seeds_new)):
-                model_mean_seeds = model_mean_seeds_new
-                continue
-            else:
-                break
-
-        stimuli_candidates = [s for s in stimuli if s is not None]
-        if len(stimuli_candidates) == 0:
-            stimulus = None  # All stimulus has been exhausted
-        else:
-            stimulus = stimuli_candidates[self.rng.randint(0, len(stimuli_candidates))]
-
-        return stimulus, threshold
-
-
-class ZestMSPStrategy(ZestStrategy):
-    @lru_cache(maxsize=512)
-    def get_current_estimate(self, threshold_sequence, response_sequence, init_mean, multiplicity):
-        if len(response_sequence) == 0:
-            return init_mean, init_mean, np.nan
-        else:
-            # ZEST initial PDF is a weighted combination of abnormal sensitivity prior (constant) and
-            # normal prior (shifted based on age model and current best prior)
-            # The line below is the bottle neck in performance due to slow scipy.stats.rv_histogram.__init__
-            # So we will cache the results
-            init_pdf = (self.coef_abnormal * self.hist_abnormal +
-                        self.coef_normal * self.hist_normal.roll(
-                                                shift=int(round((init_mean - self.center_normal) * self.refine_n)),
-                                                fill_value=self.epsilon))
-            # Calculate the PDF multiplier based on the trial and PoS function
-            trial_height = (ZestMSPStrategy.trial2pos_ramp(x=self.hist_normal.bins[:-1],
-                                                           center=c,
-                                                           fn=self.param["pos_fn"], fp=self.param["pos_fp"],
-                                                           width=self.param["pos_width"],
-                                                           seen=s, multiplicity=multi)
+                                                       center=c,
+                                                       fn=self.param["pos_fn"], fp=self.param["pos_fp"],
+                                                       width=self.param["pos_width"],
+                                                       seen=s, multiplicity=multi)
                                             for c, s, multi in zip(threshold_sequence, response_sequence, multiplicity))
             # Calculate the product
             trial_height = reduce(mul, trial_height)
@@ -1006,28 +859,12 @@ class ZestMSPStrategy(ZestStrategy):
             # Multiply the product of all trials with the prior
             updated_pdf = init_pdf * trial_pdf  # type: rv_histogram2
 
-            # Turpin 2003:
-            # As ZEST returned the mean of the final pdf, which provided a less biased estimate than the mode,8
-            # a slightly different threshold again was re-
-            # turned by ZEST, because of this factor alone.
-            threshold = updated_pdf.mean()
-            # Another implementation is trial_pdf.mode() as in
-            # Watson, A. B., Pelli, D. G., & others. (1979). The QUEST staircase procedure. Applied Vision Association Newsletter, 14, 6–7.
-            # which is not biased by the shape of init_pdf
-
-            # Check termination
-            if updated_pdf.std() < self.param["term_std"]:
-                stimulus_db = np.nan
-                threshold_determined = threshold  # Terminated
-            else:
-                stimulus_db = threshold
-                threshold_determined = np.nan
-
-        return stimulus_db, threshold, threshold_determined
+            return updated_pdf
 
     def get_stimulus_threshold(self, data):
         data = Stimulus.to_numpy(data)
         stimuli = [None] * len(self.param['pattern'])  # The next stimulus to be presented
+        self.extra_data["pdf"] = [None] * len(self.param['pattern'])  # Store the updated PDFs for investigating purposes
         threshold = np.full(len(self.param['pattern']), np.nan)  # The current best estimate of point thresholds
         threshold_determined = threshold.copy()
 
@@ -1059,18 +896,35 @@ class ZestMSPStrategy(ZestStrategy):
                 threshold_sequence = data_m[THRESHOLD]
                 multiplicity_Sequence = data_m[MULTI]
 
-                stimulus_db, threshold_est, threshold_det = self.get_current_estimate(
+                updated_pdf = self.get_current_estimate(
                     threshold_sequence=tuple(threshold_sequence),
                     response_sequence=tuple(response_sequence),
                     init_mean=model_mean_seeds[m],
                     multiplicity=tuple(multiplicity_Sequence)
                 )
-                if np.isfinite(stimulus_db):
-                    stimuli[m] = self.get_new_stimulus_at(db=stimulus_db, location=location)
-                else:
+
+                self.extra_data["pdf"][m] = updated_pdf
+                updated_pdf_mean = updated_pdf.mean()
+                updated_pdf_std = updated_pdf.std()
+
+                # Turpin 2003:
+                # As ZEST returned the mean of the final pdf, which provided a less biased estimate than the mode,8
+                # a slightly different threshold again was re-
+                # turned by ZEST, because of this factor alone.
+                # threshold[m] = updated_pdf.mean()
+                # Another implementation is trial_pdf.mode() as in
+                # Watson, A. B., Pelli, D. G., & others. (1979). The QUEST staircase procedure. Applied Vision Association Newsletter, 14, 6–7.
+                # which is not biased by the shape of init_pdf
+
+                if updated_pdf_std < self.param["term_std"]:
+                    # Terminated
                     stimuli[m] = None
-                threshold[m] = threshold_est
-                threshold_determined[m] = threshold_det
+                    threshold[m] = updated_pdf_mean
+                    threshold_determined[m] = updated_pdf_mean
+                else:
+                    stimuli[m] = self.get_new_stimulus_at(db=updated_pdf_mean, location=location)
+                    threshold[m] = updated_pdf_mean
+                    threshold_determined[m] = np.nan
 
             # recalculate growth pattern to see if more points should be included for testing
             model_mean_seeds_new, _ = self.growth_pattern.adjust(mean=model_mean, std=model_std, mean_est=threshold_determined)
@@ -1081,7 +935,22 @@ class ZestMSPStrategy(ZestStrategy):
             else:
                 break
 
-        stimuli_candidates_all = [s for s in stimuli if s is not None]
+        stimuli_candidates = [s for s in stimuli if s is not None]
+        stimulus = self.get_stimulus_from_candidates(stimuli_candidates, data)
+
+        return stimulus, threshold
+
+    def get_stimulus_from_candidates(self, stimuli_candidates, data):
+        if len(stimuli_candidates) == 0:
+            stimulus = None  # All stimulus has been exhausted
+        else:
+            stimulus = stimuli_candidates[self.rng.randint(0, len(stimuli_candidates))]
+        return stimulus
+
+
+class ZestMSPStrategy(ZestStrategy):
+    @staticmethod
+    def by_quadrant(stimuli_candidates_all):
         stimuli_candidates_by_quadrant = [[], [], [], []]
         for s in stimuli_candidates_all:
             x, y = s.xod, s.yod
@@ -1093,16 +962,42 @@ class ZestMSPStrategy(ZestStrategy):
                 stimuli_candidates_by_quadrant[2].append(s)
             else:
                 stimuli_candidates_by_quadrant[3].append(s)
+        return stimuli_candidates_by_quadrant
 
-        stimuli_candidates = [x[self.rng.randint(0, len(x))] for x in stimuli_candidates_by_quadrant if len(x) > 0]
+    def get_stimulus_from_candidates(self, stimuli_candidates_all, data):
+        if len(stimuli_candidates_all) == 0:
+            return None
 
-        if len(stimuli_candidates) == 0:
-            stimulus = None  # All stimulus has been exhausted
-        elif len(stimuli_candidates) == 1:
-            stimulus = stimuli_candidates[0]
-        else:
-            stimulus1 = stimuli_candidates.pop(self.rng.randint(0, len(stimuli_candidates))).copy(**{MULTI: 2})
-            stimulus2 = stimuli_candidates.pop(self.rng.randint(0, len(stimuli_candidates))).copy(**{MULTI: 2})
-            stimulus = [stimulus1, stimulus2]  # MSP, return as a list, not tuple, since stimulus is a namedtuple
+        # Shallow copy since we will be modifying this list
+        stimuli_candidates_all = list(stimuli_candidates_all)
+        # First pick a stimulus  at random
+        stimulus1 = stimuli_candidates_all.pop(self.rng.randint(0, len(stimuli_candidates_all)))
+        # Check if it has ever been seen before
+        seen_before = (data[RESPONSE][data[LOC] == stimulus1.loc] == STIMULUS_SEEN).any()
+        if seen_before:
+            # Then we will give up MSP and switch to SSP
+            return stimulus1
 
-        return stimulus, threshold
+        # Else - this stimulus is not seen before, we can add a second also never-before-seen stimulus for MSP
+        stimulus2_candidates = []
+        for s in stimuli_candidates_all:
+            # They should not be in the same quadrant
+            if np.sign(stimulus1.xod) == np.sign(s.xod) and np.sign(stimulus1.yod) == np.sign(s.yod):
+                continue
+            # If s has been seen before, then no go
+            if (data[RESPONSE][data[LOC] == s.loc] == STIMULUS_SEEN).any():
+                continue
+            # Now this is a good candidate
+            stimulus2_candidates.append(s)
+
+        if len(stimulus2_candidates) == 0: # No second stimulus found
+            return stimulus1
+
+        stimulus2 = stimulus2_candidates[self.rng.randint(0, len(stimulus2_candidates))]
+
+        stimulus1 = stimulus1.copy(**{MULTI: 2})
+        stimulus2 = stimulus2.copy(**{MULTI: 2})
+
+        stimulus = [stimulus1, stimulus2]  # MSP, return as a list, not tuple, since stimulus is a namedtuple
+
+        return stimulus
