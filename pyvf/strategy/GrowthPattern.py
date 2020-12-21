@@ -1,4 +1,6 @@
 import numpy as np
+from functools import cached_property
+from pyvf.ext import array_lru_cache
 
 
 class GrowthPattern:
@@ -43,16 +45,23 @@ class SimpleGrowthPattern(GrowthPattern):
         if std_est is None:
             std_est = np.full_like(std, fill_value=np.nan)
 
-        mean_infer = mean.copy()
-        for k, v in self.pattern.items():
-            offsets = mean_est[v] - mean[v]
-            if np.isfinite(offsets).all():
-                aggregate_offset = self.agg_fun(offsets)
-                mean_infer[k] += aggregate_offset
-            else:
-                mean_infer[k] = np.nan
+        return self._adjust_mean(mean, mean_est), std_est
 
-        return mean_infer, std_est
+    @cached_property
+    def _adjust_mean(self):
+        @array_lru_cache()
+        def cached_fun(mean, mean_est):
+            mean_infer = mean.copy()
+            for k, v in self.pattern.items():
+                offsets = mean_est[v] - mean[v]
+                if np.isfinite(offsets).all():
+                    aggregate_offset = self.agg_fun(offsets)
+                    mean_infer[k] += aggregate_offset
+                else:
+                    mean_infer[k] = np.nan
+
+            return mean_infer
+        return cached_fun
 
 
 class SimpleP24d2QuadrantGrowth(SimpleGrowthPattern):

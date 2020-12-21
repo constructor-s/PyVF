@@ -70,3 +70,41 @@ of the authors and should not be interpreted as representing official policies,
 either expressed or implied, of the FreeBSD Project.
 
 """
+
+import numpy as np
+
+
+def array_lru_cache():
+    def decorating_function(user_function):
+        wrapper = ArrayLruCacheWrapper(user_function)
+        return wrapper
+    return decorating_function
+
+
+class ArrayLruCacheWrapper:
+    def __call__(self, *args):
+        key = tuple(ArrayLruCacheWrapper._get_key(x) for x in args)
+        if key in self.cache:
+            self.hit += 1
+            return self.cache[key]
+        else:
+            self.miss += 1
+            ret = self.user_function(*args)
+            self.cache[key] = ret
+            return ret
+
+    def __init__(self, user_function):
+        self.user_function = user_function
+        self.cache = {}
+        self.hit = 0
+        self.miss = 0
+
+    def cache_info(self):
+        return self.hit, self.miss
+
+    @staticmethod
+    def _get_key(x):
+        if isinstance(x, np.ndarray):
+            return hash(x.data.tobytes())
+        else:
+            return x

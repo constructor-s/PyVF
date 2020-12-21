@@ -195,7 +195,12 @@ class Strategy:
         raise NotImplementedError()
 
     def clip_stimulus_intensity(self, x):
-        return np.clip(x, self.param['min_db'], self.param['max_db'])
+        return (
+            self.param['min_db'] if x < self.param['min_db'] else
+            self.param['max_db'] if x > self.param['max_db'] else
+            x
+        )
+        # np.clip(x, self.param['min_db'], self.param['max_db'])
 
     def get_new_stimulus_at(self, db, location):
         return Stimulus(
@@ -843,7 +848,7 @@ class ZestStrategy(Strategy):
                                             shift=int(round((init_mean - self.center_normal) * self.refine_n)),
                                             fill_value=self.epsilon))
         if len(response_sequence) == 0:
-            return init_pdf
+            return init_pdf, init_pdf.mean(), init_pdf.std()
         else:
             # Calculate the PDF multiplier based on the trial and PoS function
             trial_height = (ZestStrategy.trial2pos_ramp(x=self.hist_normal.bins[:-1],
@@ -859,7 +864,7 @@ class ZestStrategy(Strategy):
             # Multiply the product of all trials with the prior
             updated_pdf = init_pdf * trial_pdf  # type: rv_histogram2
 
-            return updated_pdf
+            return updated_pdf, updated_pdf.mean(), updated_pdf.std()
 
     def get_stimulus_threshold(self, data):
         M = len(self.param['pattern'])
@@ -900,7 +905,7 @@ class ZestStrategy(Strategy):
                 threshold_sequence = data_m[THRESHOLD]
                 multiplicity_Sequence = data_m[MULTI]
 
-                updated_pdf = self.get_current_estimate(
+                updated_pdf, updated_pdf_mean, updated_pdf_std = self.get_current_estimate(
                     threshold_sequence=tuple(threshold_sequence),
                     response_sequence=tuple(response_sequence),
                     init_mean=model_mean_seeds[m],
@@ -908,8 +913,6 @@ class ZestStrategy(Strategy):
                 )
 
                 self.extra_data["pdf"][m] = updated_pdf
-                updated_pdf_mean = updated_pdf.mean()
-                updated_pdf_std = updated_pdf.std()
 
                 # Turpin 2003:
                 # As ZEST returned the mean of the final pdf, which provided a less biased estimate than the mode,8

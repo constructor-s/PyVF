@@ -22,8 +22,8 @@ along with PyVF. If not, see <https://www.gnu.org/licenses/>.
 """
 
 from pyvf.strategy import ZestStrategy, PATTERN_P24D2, XOD, YOD, TSDISP, Stimulus, STIMULUS_SEEN, STIMULUS_NOT_SEEN, \
-    RESPONSE, ZestMSPStrategy
-from pyvf.strategy.GrowthPattern import SimpleP24d2QuadrantGrowth
+    RESPONSE, ZestMSPStrategy, Strategy
+from pyvf.strategy.GrowthPattern import SimpleP24d2QuadrantGrowth, SimpleGrowthPattern
 from pyvf.strategy.Model import ConstantModel, AgeLinearModel, Heijl1987p24d2Model
 from pyvf.strategy.Responder import RampResponder, PerfectResponder
 from pyvf.resources.rotterdam2013 import VF_THRESHOLD, VF_THRESHOLD_INFO
@@ -47,6 +47,7 @@ def pretty_print_vf(arr, pattern=PATTERN_P24D2):
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
+    suffix = "_20201221_e0"
 
     # Randomly sample visual field for each eye
     rng = np.random.RandomState(0)
@@ -58,7 +59,7 @@ if __name__ == '__main__':
 
     results = []
 
-    repeats = 1
+    repeats = 2
     import time
     import sys
     import datetime
@@ -76,9 +77,9 @@ if __name__ == '__main__':
         field_id = info.FIELD_ID
         true_thresholds = true_threshold.loc[field_id].values  # THIS WAS WRONG! FIELD_ID IS FROM 1, NOT 0
         for rep in range(repeats):
-            responder = RampResponder(true_threshold=true_thresholds, fp=0.15, fn=0.15, width=4, seed=i*rep)
+            responder = RampResponder(true_threshold=true_thresholds, fp=0.0, fn=0.0, width=4, seed=i*rep)
             model = Heijl1987p24d2Model(eval_pattern=PATTERN_P24D2, age=info.AGE)
-            strategy = ZestMSPStrategy(
+            strategy = ZestStrategy(
                 pattern=PATTERN_P24D2,
                 blindspot=[25, 34],
                 model=model,
@@ -126,4 +127,18 @@ if __name__ == '__main__':
             results.append(res)
 
     output_df = pd.DataFrame(results)
-    output_df.to_csv(f"zest_simulate_rotterdam_{strategy.__class__.__name__}.csv", index=False)
+    output_df["PRESENTATIONS"] = output_df["PRESENTATIONS"].astype(int)
+    output_df.to_csv(f"zest_simulate_rotterdam_{strategy.__class__.__name__}_{suffix}.csv", index=False, float_format="%.6f")
+
+# main()
+# from line_profiler import LineProfiler
+# lp = LineProfiler()
+# lp.add_function(ZestStrategy.get_current_estimate)
+# lp.add_function(ZestStrategy.get_new_stimulus_at)
+# lp.add_function(Strategy.clip_stimulus_intensity)
+# lp.add_function(ZestStrategy.get_stimulus_threshold)
+# lp.add_function(SimpleGrowthPattern.adjust)
+# lp_wrapper = lp(main)
+# lp_wrapper()
+# with open("output/profile6.py", "w") as f:
+#     lp.print_stats(stream=f, output_unit=1e-6)
