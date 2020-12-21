@@ -862,10 +862,14 @@ class ZestStrategy(Strategy):
             return updated_pdf
 
     def get_stimulus_threshold(self, data):
+        M = len(self.param['pattern'])
+
         data = Stimulus.to_numpy(data)
-        stimuli = [None] * len(self.param['pattern'])  # The next stimulus to be presented
-        self.extra_data["pdf"] = [None] * len(self.param['pattern'])  # Store the updated PDFs for investigating purposes
-        threshold = np.full(len(self.param['pattern']), np.nan)  # The current best estimate of point thresholds
+        self.extra_data["data"] = data
+
+        self.extra_data["pdf"] = [None] * M
+        stimuli = [None] * M  # The next stimulus to be presented
+        threshold = np.full(M, np.nan)  # The current best estimate of point thresholds
         threshold_determined = threshold.copy()
 
         model_mean = self.param["model"].get_mean()
@@ -936,11 +940,11 @@ class ZestStrategy(Strategy):
                 break
 
         stimuli_candidates = [s for s in stimuli if s is not None]
-        stimulus = self.get_stimulus_from_candidates(stimuli_candidates, data)
+        stimulus = self.get_stimulus_from_candidates(stimuli_candidates)
 
         return stimulus, threshold
 
-    def get_stimulus_from_candidates(self, stimuli_candidates, data):
+    def get_stimulus_from_candidates(self, stimuli_candidates):
         if len(stimuli_candidates) == 0:
             stimulus = None  # All stimulus has been exhausted
         else:
@@ -964,7 +968,10 @@ class ZestMSPStrategy(ZestStrategy):
                 stimuli_candidates_by_quadrant[3].append(s)
         return stimuli_candidates_by_quadrant
 
-    def get_stimulus_from_candidates(self, stimuli_candidates_all, data):
+    def get_stimulus_from_candidates(self, stimuli_candidates_all):
+        data = self.extra_data["data"]
+        pdf = self.extra_data["pdf"]
+
         if len(stimuli_candidates_all) == 0:
             return None
 
@@ -972,9 +979,10 @@ class ZestMSPStrategy(ZestStrategy):
         stimuli_candidates_all = list(stimuli_candidates_all)
         # First pick a stimulus  at random
         stimulus1 = stimuli_candidates_all.pop(self.rng.randint(0, len(stimuli_candidates_all)))
-        # Check if it has ever been seen before
-        seen_before = (data[RESPONSE][data[LOC] == stimulus1.loc] == STIMULUS_SEEN).any()
-        if seen_before:
+        # <s>Check if it has ever been seen before</s>
+        # New implementation - check if it has ever been presented before
+        done_before = (data[LOC] == stimulus1.loc).any()  # (data[RESPONSE][data[LOC] == stimulus1.loc] == STIMULUS_SEEN).any()
+        if done_before:
             # Then we will give up MSP and switch to SSP
             return stimulus1
 
@@ -985,7 +993,7 @@ class ZestMSPStrategy(ZestStrategy):
             if np.sign(stimulus1.xod) == np.sign(s.xod) and np.sign(stimulus1.yod) == np.sign(s.yod):
                 continue
             # If s has been seen before, then no go
-            if (data[RESPONSE][data[LOC] == s.loc] == STIMULUS_SEEN).any():
+            if (data[LOC] == stimulus1.loc).any():  # (data[RESPONSE][data[LOC] == s.loc] == STIMULUS_SEEN).any():
                 continue
             # Now this is a good candidate
             stimulus2_candidates.append(s)
@@ -995,6 +1003,7 @@ class ZestMSPStrategy(ZestStrategy):
 
         stimulus2 = stimulus2_candidates[self.rng.randint(0, len(stimulus2_candidates))]
 
+        # New implementation - test at mode for MSP
         stimulus1 = stimulus1.copy(**{MULTI: 2})
         stimulus2 = stimulus2.copy(**{MULTI: 2})
 
