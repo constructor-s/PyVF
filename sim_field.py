@@ -64,13 +64,17 @@ if __name__ == '__main__':
     import datetime
     print(datetime.datetime.now())
     tic = time.perf_counter()
+    true_threshold = pd.DataFrame(VF_THRESHOLD,
+                                  index=np.arange(VF_THRESHOLD_INFO["FIELD_ID"].min(),
+                                                  VF_THRESHOLD_INFO["FIELD_ID"].max() + 1),
+                                  columns=[f"L{i}" for i in range(VF_THRESHOLD.shape[1])])
     for i, info in enumerate(sample_field_info.itertuples()):
         n = len(sample_field_info)
         elapsed = time.perf_counter() - tic
         remaining = 0.0 if i == 0 else elapsed * 1.0 / i * (n-i)
         print(f"{i}/{n}, e: {elapsed:.0f} sec, r: {remaining:.0f} sec", end="        \r")
         field_id = info.FIELD_ID
-        true_thresholds = VF_THRESHOLD[field_id]
+        true_thresholds = true_threshold.loc[field_id].values  # THIS WAS WRONG! FIELD_ID IS FROM 1, NOT 0
         for rep in range(repeats):
             responder = RampResponder(true_threshold=true_thresholds, fp=0.15, fn=0.15, width=4, seed=i*rep)
             model = Heijl1987p24d2Model(eval_pattern=PATTERN_P24D2, age=info.AGE)
