@@ -5,3 +5,8 @@ requests>=2.23.0
 scipy>=1.4.1
 pydicom>=2.0.0
 pdfminer.six>=20200726
+# For VEM lab internal usages:
+beautifulsoup4
+pycryptodomex
+# Not available on Anaconda:
+pyzipper
