@@ -73,15 +73,15 @@ for d in args.input_folders:
             eye = "OS"
 
         test_datetime = datetime.fromtimestamp(float(test_start["timestamp"]) / 1000.0)
-        model = pyvf.strategy.Model.Heijl1987p24d2Model(
+        model = pyvf.strategy.Model.TPP2020p24d2Model(  # pyvf.strategy.Model.Heijl1987p24d2Model(
             age=(test_datetime-datetime(dob.year, dob.month, dob.day)).days/365.25,
             eval_pattern=pyvf.strategy.PATTERN_P24D2
         )
 
         thresholds = tuple(float(loc[3]) for loc in data["locations"])
         kwargs = {f"L{i}": v for i, v in enumerate(thresholds)}
-        kwargs.update({f"TDp{i}": v for i, v in enumerate(scipy.stats.norm.cdf(model.get_td(thresholds)* 1.0 / model.get_std()))})
-        kwargs.update({f"PDp{i}": v for i, v in enumerate(scipy.stats.norm.cdf(model.get_pd(thresholds)* 1.0 / model.get_std()))})
+        kwargs.update({f"TDp{i}": v for i, v in enumerate(scipy.stats.norm.cdf(model.get_td(thresholds) * 1.0 / model.get_std()))})
+        kwargs.update({f"PDp{i}": v for i, v in enumerate(scipy.stats.norm.cdf(model.get_pd(thresholds) * 1.0 / model.get_std()))})
         se = SummaryEntry(id=p.name,
                           comment="/".join(comments),
                           timestamp=test_datetime,
@@ -108,4 +108,4 @@ for col in ('id', 'comment', 'eye', 'pattern', 'strategy', 'ght'):
 df["dob"] = pd.to_datetime(df["dob"])
 df = df.sort_values(["id", "eye", "timestamp"])
 df.to_csv(args.output, index=False, float_format="%.6g")
-df.to_hdf(args.output+".h5", key='df', mode='w', format="table")
+# df.to_hdf(args.output+".h5", key='df', mode='w', format="table")
