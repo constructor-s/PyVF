@@ -22,17 +22,28 @@ from PIL import Image
 from collections import OrderedDict
 
 
-def vfarray2matrix(vf, pattern=pyvf.strategy.PATTERN_P24D2, xspacing=6, xmin=-27, xmax=+27, yspacing=6, ymin=-27, ymax=+27):
+def vfarray2matrix(vf, pattern=pyvf.strategy.PATTERN_P24D2, xspacing=6, xmin=-27, xmax=+27, yspacing=6, ymin=-27, ymax=+27, fill_value=np.nan):
+    """
+    Convert a 1D array of visual field values to a 2D matrix according to the pattern with padding at the corners
+
+    Parameters
+    ----------
+    vf : 1d array of visual field values
+
+    Returns
+    -------
+    1d array converted to 2d matrix according to the matrix for visual representation
+    """
     xsize = int((xmax - xmin) / xspacing + 1)
     ysize = int((ymax - ymin) / yspacing + 1)
 
     def loc2ind(x, y):
         xi = int((x - xmin) / xspacing)
-        yi = int((y - ymin) / yspacing)
+        yi = int((ymax - y) / yspacing)
 
         return yi, xi  # Numpy array index is (y, x)
 
-    ret = np.full((xsize, ysize), fill_value=np.nan, dtype=np.float64)
+    ret = np.full((xsize, ysize), fill_value=fill_value)
 
     for vf_loc, pattern_loc in zip(vf, pattern):
         ind = loc2ind(pattern_loc["xod"], pattern_loc["yod"])
@@ -105,6 +116,25 @@ for group_name, group in df.groupby(["id", "eye"]):
 
             curr_soup.select("#overview-container .value-date")[i].string = item.timestamp.strftime("%b %e, %Y")
             curr_soup.select("#overview-container .value-strategy")[i].string = item.strategy
+
+            if item.comment:  # There is already a comment
+                processed_comment = item.comment
+            else:
+                hfl = item.fl_error/item.fl_total > 0.33
+                hfp = item.fp_error/item.fp_total > 0.20
+                hfn = item.fn_error/item.fn_total > 0.20
+                if (hfl & hfp) or (hfl & hfn) or (hfp & hfn):
+                    processed_comment = "Poor reliability"
+                elif hfl:
+                    processed_comment = "High FL"
+                elif hfp:
+                    processed_comment = "High FP"
+                elif hfn:
+                    processed_comment = "High FN"
+                else:
+                    processed_comment = ""
+            curr_soup.select("#overview-container .value-comment")[i].string = processed_comment
+
             curr_soup.select("#overview-container .value-fl")[i].string = f"{item.fl_error}/{item.fl_total}"
             curr_soup.select("#overview-container .value-fn")[i].string = f"{item.fn_error}/{item.fn_total}"
             curr_soup.select("#overview-container .value-fp")[i].string = f"{item.fp_error}/{item.fp_total}"
