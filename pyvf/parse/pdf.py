@@ -86,8 +86,14 @@ class HFAPDFParser:
 
     def get_value(self, key, offset=1):
         key_index = self.text_sequences.index(key)
-        value = self.text_sequences[key_index + offset]
-        return value
+        # value = self.text_sequences[key_index + offset]
+        real_offset = offset
+        i = 0
+        while i < real_offset:
+            i += 1
+            if self.text_sequences[key_index + i] == ' ':
+                real_offset += 1
+        return self.text_sequences[key_index + real_offset]
 
     def get_value_list(self, key, offset_start=1, length=1):
         key_index = self.text_sequences.index(key)

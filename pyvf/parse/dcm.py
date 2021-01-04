@@ -27,6 +27,8 @@ import pydicom
 from pydicom.tag import Tag
 from io import BytesIO
 import datetime
+import logging
+import numpy as np
 
 SFA_DCM_ENCAPSULATED_TYPE = Tag(0x2201, 0x1000)
 SFA_DCM_ENCAPSULATED_VERSION = Tag(0x2201, 0x1001)
@@ -35,7 +37,8 @@ SFA_DCM_REPORT_TYPE = Tag(0x22A1, 0x1001)
 SFA_DCM_REPORT_TYPE = Tag(0x2501, 0x1000)  # Both of these fields seem to be the same...
 SFA_DCM_UNKNOWN = Tag(0x2501, 0x1007)
 SFA_DCM_UNKNOWN = Tag(0x2501, 0x1008)
-SFA_DCM_PATTERN = Tag(0x7717, 0x1002)
+SFA_DCM_PATTERN = Tag(0x7717, 0x1001)
+SFA_DCM_STRATEGY = Tag(0x7717, 0x1002)
 SFA_DCM_STIMULUS_SIZE = Tag(0x7717, 0x1003)
 SFA_DCM_STIMULUS_COLOR = Tag(0x7717, 0x1004)
 SFA_DCM_STIMULUS_BACKGROUND = Tag(0x7717, 0x1005)  # TODO: This may be swapped with above
@@ -57,6 +60,21 @@ SFA_DCM_DATE = Tag(0x7717, 0x1032)
 SFA_DCM_TIME = Tag(0x7717, 0x1033)
 SFA_DCM_VFI = Tag(0x7717, 0x1034)
 
+_logger = logging.getLogger(__name__)
+EMPTY_PDF = b'%PDF-1.1\n%\xe2\xe3\xcf\xd3\n1 0 obj \n<<\n/Kids [2 0 R]\n/Count 1\n/Type /Pages\n>>\nendobj \n2 0 obj \n<<\n/Parent 1 0 R\n/Resources 3 0 R\n/MediaBox [0 0 612 792]\n/Contents [4 0 R]\n/Type /Page\n>>\nendobj \n3 0 obj \n<<\n/Font \n<<\n/F0 \n<<\n/BaseFont /Courier\n/Subtype /Type1\n/Type /Font\n>>\n>>\n>>\nendobj \n4 0 obj \n<<\n/Length 80\n>>\nstream\n1. 0. 0. 1. 50. 700. cm\nBT\n  /F0 16. Tf\n  (PDF content has been removed) Tj\nET \n\nendstream \nendobj \n5 0 obj \n<<\n/Pages 1 0 R\n/Type /Catalog\n>>\nendobj xref\n0 6\n0000000000 65535 f \n0000000015 00000 n \n0000000074 00000 n \n0000000182 00000 n \n0000000276 00000 n \n0000000409 00000 n \ntrailer\n\n<<\n/Root 5 0 R\n/Size 6\n>>\nstartxref\n459\n%%EOF\n'
+
+
+def property_with_default(default=None):
+    class custom_property(property):
+        def __init__(self, fget, *args, **kwargs):
+            def new_fget(*args, **kwargs):
+                try:
+                    return fget(*args, **kwargs)
+                except KeyError:
+                    return default
+            super().__init__(fget=new_fget, *args, **kwargs)
+    return custom_property
+
 
 class HFADCMParser:
     def __init__(self, fp=None, dataset=None):
@@ -72,119 +90,127 @@ class HFADCMParser:
         from copy import deepcopy
         dataset = deepcopy(self.dataset)  # Make copy
         dcmanonymize(dataset, anonymization_fun=anonymization_fun)
-        anonymized_pdf_parser = self.pdf_parser.anonymize(anonymization_fun=anonymization_fun)
-        dataset.EncapsulatedDocument = anonymized_pdf_parser.raw_pdf
+        try:
+            anonymized_pdf_parser = self.pdf_parser.anonymize(anonymization_fun=anonymization_fun)
+            dataset.EncapsulatedDocument = anonymized_pdf_parser.raw_pdf
+        except ValueError as e:
+            _logger.error(f"Could not parse PDF format. Replacing with empty PDF. ({str(e)})")
+            dataset.EncapsulatedDocument = EMPTY_PDF
 
         return HFADCMParser(dataset=dataset)
 
     def save_as(self, filename):
         self.dataset.save_as(filename)
 
-    @property
+    @property_with_default()
     def name(self):
         return self.dataset.PatientName
 
-    @property
+    @property_with_default()
     def dob(self):
         return datetime.datetime.strptime(self.dataset.PatientBirthDate, "%Y%m%d")
 
-    @property
+    @property_with_default()
     def gender(self):
         return self.dataset.PatientSex
 
-    @property
+    @property_with_default()
     def id(self):
         return self.dataset.PatientID
 
-    @property
+    @property_with_default()
     def laterality(self):
         value = self.dataset.Laterality
         value = {"R": "OD", "L": "OS"}[value]
         assert value == "OS" or value == "OD"
         return value
 
-    @property
+    @property_with_default()
     def report_type(self):
         return self.dataset[SFA_DCM_REPORT_TYPE].value
 
-    @property
+    @property_with_default()
     def pattern(self):
         return self.dataset[SFA_DCM_PATTERN].value
 
-    @property
+    @property_with_default()
+    def strategy(self):
+        return self.dataset[SFA_DCM_STRATEGY].value
+
+    @property_with_default()
     def fixation_monitor(self):
         return self.dataset[SFA_DCM_FIXATION_MONITOR].value
 
-    @property
+    @property_with_default()
     def fixation_target(self):
         return self.dataset[SFA_DCM_FIXATION_TARGET].value
 
-    @property
+    @property_with_default(default=np.nan)
     def fixation_loss_error(self):
         return self.dataset[SFA_DCM_FL_ERROR].value
 
-    @property
+    @property_with_default(default=np.nan)
     def fixation_loss_total(self):
         return self.dataset[SFA_DCM_FL_TOTAL].value
 
-    @property
+    @property_with_default(default=np.nan)
     def fixation_loss(self):
         return self.fixation_loss_error * 1.0 / self.fixation_loss_total
 
-    @property
+    @property_with_default(default=np.nan)
     def false_positive(self):
         return self.dataset[SFA_DCM_FP].value / 100.0
 
-    @property
+    @property_with_default(default=np.nan)
     def false_negative(self):
         return self.dataset[SFA_DCM_FN].value / 100.0
 
-    @property
+    @property_with_default()
     def stimulus_size(self):
         return self.dataset[SFA_DCM_STIMULUS_SIZE].value
 
-    @property
+    @property_with_default()
     def stimulus_color(self):
         return self.dataset[SFA_DCM_STIMULUS_COLOR].value
 
-    @property
+    @property_with_default()
     def stimulus_background(self):
         return self.dataset[SFA_DCM_STIMULUS_BACKGROUND].value
 
-    @property
+    @property_with_default()
     def pupil_diameter(self):
         return self.dataset[SFA_DCM_PUPIL_DIAMETER].value
 
-    @property
+    @property_with_default()
     def rx(self):
         return self.dataset[SFA_DCM_RX].value
 
-    @property
+    @property_with_default()
     def datetime(self):
         value = self.dataset.AcquisitionDateTime
         return datetime.datetime.strptime(value, "%Y%m%d%H%M%S.%f")
 
-    @property
+    @property_with_default()
     def ght(self):
         return self.dataset[SFA_DCM_GHT].value
 
-    @property
+    @property_with_default(default=np.nan)
     def vfi(self):
         return self.dataset[SFA_DCM_VFI].value
 
-    @property
+    @property_with_default(default=np.nan)
     def md(self):
         return self.dataset[SFA_DCM_MD].value
 
-    @property
+    @property_with_default()
     def mdsig(self):
         return self.dataset[SFA_DCM_MDSIG].value
 
-    @property
+    @property_with_default(default=np.nan)
     def psd(self):
         return self.dataset[SFA_DCM_PSD].value
 
-    @property
+    @property_with_default()
     def psdsig(self):
         return self.dataset[SFA_DCM_PSDSIG].value
 
