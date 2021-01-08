@@ -30,6 +30,8 @@ from pdfminer.pdfpage import PDFPage
 from pdfminer.pdfparser import PDFParser
 from datetime import datetime, timedelta
 from io import BytesIO
+import logging
+_logger = logging.getLogger(__name__)
 
 
 class HFAPDFParser:
@@ -118,19 +120,31 @@ class HFAPDFParser:
 
     @property
     def laterality(self):
-        value = self.get_value("Patient ID:", offset=2)
+        try:
+            value = self.get_value("Patient ID:", offset=2)
+        except ValueError as e:  # If the Patient ID has been deleted - ValueError: 'Patient ID:' is not in list
+            _logger.debug("Cannot find 'Patient ID:', trying other keys: %s", e)
+            return self.get_value("Version", offset=-4)
         assert value == "OS" or value == "OD"
         return value
 
     @property
     def report_type(self):
-        value = self.get_value("Patient ID:", offset=3)
+        try:
+            value = self.get_value("Patient ID:", offset=3)
+        except ValueError as e:  # If the Patient ID has been deleted - ValueError: 'Patient ID:' is not in list
+            _logger.debug("Cannot find 'Patient ID:', trying other keys: %s", e)
+            return self.get_value("Version", offset=-3)
         assert value == "Single Field Analysis", f"Report type {value} currently not supported"
         return value
 
     @property
     def pattern(self):
-        return self.get_value("Patient ID:", offset=4)
+        try:
+            return self.get_value("Patient ID:", offset=4)
+        except ValueError as e:  # If the Patient ID has been deleted - ValueError: 'Patient ID:' is not in list
+            _logger.debug("Cannot find 'Patient ID:', trying other keys: %s", e)
+            return self.get_value("Version", offset=-2)
 
     @property
     def fixation_monitor(self):
@@ -142,11 +156,11 @@ class HFAPDFParser:
 
     @property
     def fixation_loss_error(self):
-        return int(self.fixation_losses.split()[0].split("/")[0])
+        return int(self.fixation_loss.split()[0].split("/")[0])
 
     @property
     def fixation_loss_total(self):
-        return int(self.fixation_losses.split()[0].split("/")[1])
+        return int(self.fixation_loss.split()[0].split("/")[1])
 
     @property
     def fixation_loss(self):
@@ -262,11 +276,19 @@ class HFAPDFParser:
 
     @property
     def md(self):
-        return self.get_value("MD:", offset=1)
+        for key in ("MD:", "MD24-2:", "MD10-2:"):
+            try:
+                return self.get_value(key, offset=1)
+            except ValueError as e:
+                _logger.debug("Cannot find %s, trying other keys: %s", key, e)
 
     @property
     def psd(self):
-        return self.get_value("PSD:", offset=1)
+        for key in ("PSD:", "PSD24-2:", "PSD10-2:"):
+            try:
+                return self.get_value(key, offset=1)
+            except ValueError as e:
+                _logger.debug("Cannot find %s, trying other keys: %s", key, e)
 
 
 class HFASFADevice(PDFLayoutAnalyzer):
