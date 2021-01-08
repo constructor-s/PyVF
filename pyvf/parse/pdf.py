@@ -251,24 +251,39 @@ class HFAPDFParser:
         -------
         A list of visual field thresholds as float. "<0" are converted to -1.0
         """
-        value_list = self.get_value_list("Total Deviation", offset_start=-self.n_td_loc-self.n_td_loc-self.n_vf_loc, length=self.n_vf_loc)
+        if self.get_value("Total Deviation", offset=-1) == "See Total Deviation plot.":
+            value_list = self.get_value_list("Total Deviation", offset_start=-4-self.n_td_loc-self.n_vf_loc, length=self.n_vf_loc)
+        else:
+            value_list = self.get_value_list("Total Deviation", offset_start=-self.n_td_loc*2-self.n_vf_loc, length=self.n_vf_loc)
         values = [float(i) if i != "<0" else -1 for i in value_list]
         assert all(map(lambda x: x>=-1, values))
         return values
 
     @property
     def td(self):
-        value_list = self.get_value_list("Total Deviation", offset_start=-self.n_td_loc-self.n_td_loc, length=self.n_td_loc)
+        if self.get_value("Total Deviation", offset=-1) == "See Total Deviation plot.":
+            value_list = self.get_value_list("Total Deviation", offset_start=-4-self.n_td_loc, length=self.n_td_loc)
+        else:
+            value_list = self.get_value_list("Total Deviation", offset_start=-self.n_td_loc*2, length=self.n_td_loc)
         return [float(i) for i in value_list]
 
     @property
     def pd(self):
-        value_list = self.get_value_list("Pattern Deviation", offset_start=-1-self.n_td_loc, length=self.n_td_loc)
-        return [float(i) for i in value_list]
+        if self.get_value("Total Deviation", offset=-1) == "See Total Deviation plot.":
+            return [float("nan")] * self.n_td_loc
+        else:
+            value_list = self.get_value_list("Pattern Deviation", offset_start=-1-self.n_td_loc, length=self.n_td_loc)
+            return [float(i) for i in value_list]
 
     @property
     def ght(self):
-        return self.get_value("GHT:", offset=1)
+        # Sometimes GHT is split across two lines
+        pt1 = self.get_value("GHT:", offset=1)
+        pt2 = self.get_value("GHT:", offset=2)
+        if pt2 == "VFI:":
+            return pt1
+        else:
+            return " ".join((pt1, pt2))
 
     @property
     def vfi(self):
