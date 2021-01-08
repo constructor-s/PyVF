@@ -1,6 +1,5 @@
 import numpy as np
-from functools import cached_property
-from pyvf.ext import array_lru_cache
+from pyvf.ext import array_lru_cache, cached_property
 
 
 class GrowthPattern:
