@@ -1,3 +1,26 @@
+"""
+Example for parsing HFA PDF SFA
+
+Copyright 2020 Bill Runjie Shi
+At the Vision and Eye Movements Lab, University of Toronto.
+Visit us at: http://www.eizenman.ca/
+
+This file is part of PyVF.
+
+PyVF is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+PyVF is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with PyVF. If not, see <https://www.gnu.org/licenses/>.
+"""
+
 from pyvf.parse.pdf import HFAPDFParser
 import argparse
 from itertools import chain
