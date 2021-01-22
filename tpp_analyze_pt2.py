@@ -21,7 +21,7 @@ parser.add_argument("-i", "--input", required=True, type=str, help="Output from 
 parser.add_argument("-o", "--output-folder", required=True, type=str, help="Figure export folder")
 args = parser.parse_args()
 
-df = pd.read_hdf(args.input, key="df")  # type: pd.DataFrame
+df = pd.read_csv(args.input, parse_dates=["timestamp"])  # type: pd.DataFrame
 
 tests_start = df[df["comment"]!="invalid"].groupby(["id", "eye"])["timestamp"].min()
 tests_end = df[df["comment"]!="invalid"].groupby(["id", "eye"])["timestamp"].max()
@@ -42,7 +42,7 @@ for name, group in df[(df["comment"]!="invalid") & (df["comment"]!="exclude")].g
     plotter.ax = ax
     plotter.create_axes()
 
-    plotter.ax.set_title("-".join(name))
+    plotter.ax.set_title("-".join(map(str, name)))
     plotter.ax.xaxis.set_minor_formatter(NullFormatter())
     plotter.ax.yaxis.set_minor_formatter(NullFormatter())
     for i, axin in enumerate(plotter.axins):
@@ -106,8 +106,8 @@ for name, group in df[(df["comment"]!="invalid") & (df["comment"]!="exclude")].g
     ax2.grid(axis="y", linestyle="dashed")
 
     fig.show()
-    # fig.savefig(Path(args.output_folder) / ("-".join(name)+".pdf"))
-    # fig.savefig(Path(args.output_folder) / ("-".join(name)+".png"), dpi=300)
+    fig.savefig(Path(args.output_folder) / ("-".join(map(str, name))+".pdf"))
+    # fig.savefig(Path(args.output_folder) / ("-".join(map(str, name))+".png"), dpi=300)
     plt.close(fig)
 
-    break
+    # break
