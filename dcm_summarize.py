@@ -27,6 +27,7 @@ from argparse import ArgumentParser
 from collections import namedtuple
 import logging
 import pandas as pd
+from pathlib import Path
 import pyvf.parse.dcm
 
 _logger = logging.getLogger(__name__)
@@ -36,13 +37,15 @@ _logger.addHandler(sh)
 _logger.setLevel(logging.DEBUG)
 
 argparser = ArgumentParser("Summarize visual field results to CSV")
-argparser.add_argument("-i", "--input", type=str, required=True, nargs="+", help="One or more glob patterns of .dcm files")
+argparser.add_argument("-i", "--input", type=str, required=True, nargs="+",
+                       help="One or more glob patterns of .dcm files. Note must convert to / on Windows paths.")
 argparser.add_argument("-o", "--output", type=str, required=True, help="Output CSV file")
 args = argparser.parse_args()
 
 VFSummary = namedtuple("VFSummary",
                        ["TEST_ID", "STUDY_ID", "PATTERN", "ROUTINE", "AGE_HFA", "SIDE", "MD_HFA", "PSD_HFA", "VFI_HFA",
                         "GHT_HFA", "FPR_HFA", "FNR_HFA", "FLR_HFA", "DATE_HFA", "TIME_HFA", "DURATION_HFA",
+                        'FILE', 'FOLDER',
                         "L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9", "L10", "L11", "L12", "L13", "L14",
                         "L15", "L16", "L17", "L18", "L19", "L20", "L21", "L22", "L23", "L24", "L25", "L26",
                         "L27", "L28", "L29", "L30", "L31", "L32", "L33", "L34", "L35", "L36", "L37", "L38",
@@ -82,6 +85,8 @@ for test_file in itertools.chain(*map(glob.glob, args.input)):
             DATE_HFA=parser.datetime.date(),
             TIME_HFA=parser.datetime.time().replace(microsecond=0),
             DURATION_HFA=parser.pdf_parser.test_duration,
+            FILE=test_file,
+            FOLDER=Path(test_file).parent.absolute().name,
             **({f"L{i + 1}": parser.pdf_parser.vf[i] for i in range(54)})
         )
     except ValueError:
@@ -102,6 +107,8 @@ for test_file in itertools.chain(*map(glob.glob, args.input)):
             DATE_HFA=parser.datetime.date(),
             TIME_HFA=parser.datetime.time().replace(microsecond=0),
             DURATION_HFA=pd.NA,
+            FILE=test_file,
+            FOLDER=Path(test_file).parent.absolute().name,
             **({f"L{i + 1}": pd.NA for i in range(54)})
         )
 
