@@ -102,6 +102,33 @@ class HFAPDFParser:
         value = self.text_sequences[key_index + offset_start:key_index + offset_start + length]
         return value
 
+    def get_value_try_multiple_methods(self, kwargs_list, validate_fun):
+        """
+        For slightly different PDF formats, some key locators may not work.
+        This is a helper method wrapping the get_value method
+        to conveniently retry different ways if invalid values were obtained
+        """
+        assert len(kwargs_list) > 0, "Must provide at least one kwargs in kwargs_list"
+        success = False
+
+        for kwargs in kwargs_list:
+            try:
+                value = self.get_value(**kwargs)
+            except ValueError as e:
+                _logger.debug("Get value failed with %s, continue: %s", kwargs, e)
+                continue
+
+            success = validate_fun(value)
+            if success:  # Returns True if it is a valid value
+                break
+            else:
+                continue
+
+        assert success, f"Failed on all get value options: {str(kwargs_list)}. Last value was {repr(value)}."
+        # noinspection PyUnboundLocalVariable
+        return value
+
+
     @property
     def name(self):
         return self.get_value("Patient:")
@@ -120,31 +147,28 @@ class HFAPDFParser:
 
     @property
     def laterality(self):
-        try:
-            value = self.get_value("Patient ID:", offset=2)
-        except ValueError as e:  # If the Patient ID has been deleted - ValueError: 'Patient ID:' is not in list
-            _logger.debug("Cannot find 'Patient ID:', trying other keys: %s", e)
-            return self.get_value("Version", offset=-4)
-        assert value == "OS" or value == "OD"
+        value = self.get_value_try_multiple_methods((
+            {"key": "Patient ID:", "offset": 2},
+            {"key": "Version", "offset": -4},
+        ), validate_fun=lambda value: value == "OS" or value == "OD")
         return value
 
     @property
     def report_type(self):
-        try:
-            value = self.get_value("Patient ID:", offset=3)
-        except ValueError as e:  # If the Patient ID has been deleted - ValueError: 'Patient ID:' is not in list
-            _logger.debug("Cannot find 'Patient ID:', trying other keys: %s", e)
-            return self.get_value("Version", offset=-3)
-        assert value == "Single Field Analysis", f"Report type {value} currently not supported"
+        # assert value == "Single Field Analysis", f"Report type {value} currently not supported"
+        value = self.get_value_try_multiple_methods((
+            {"key": "Patient ID:", "offset": 3},
+            {"key": "Version", "offset": -3},
+        ), validate_fun=lambda value: value == "Single Field Analysis")
         return value
 
     @property
     def pattern(self):
-        try:
-            return self.get_value("Patient ID:", offset=4)
-        except ValueError as e:  # If the Patient ID has been deleted - ValueError: 'Patient ID:' is not in list
-            _logger.debug("Cannot find 'Patient ID:', trying other keys: %s", e)
-            return self.get_value("Version", offset=-2)
+        value = self.get_value_try_multiple_methods((
+            {"key": "Patient ID:", "offset": 4},
+            {"key": "Version", "offset": -2},
+        ), validate_fun=lambda value: "24-2" in value or "10-2" in value or "30-2" in value)
+        return value
 
     @property
     def fixation_monitor(self):
@@ -291,7 +315,7 @@ class HFAPDFParser:
 
     @property
     def md(self):
-        for key in ("MD:", "MD24-2:", "MD10-2:"):
+        for key in ("MD:", "MD24-2:", "MD10-2:", "MD30-2:"):
             try:
                 return self.get_value(key, offset=1)
             except ValueError as e:
@@ -299,7 +323,7 @@ class HFAPDFParser:
 
     @property
     def psd(self):
-        for key in ("PSD:", "PSD24-2:", "PSD10-2:"):
+        for key in ("PSD:", "PSD24-2:", "PSD10-2:", "PSD30-2:"):
             try:
                 return self.get_value(key, offset=1)
             except ValueError as e:
@@ -316,5 +340,11 @@ class HFASFADevice(PDFLayoutAnalyzer):
         super(HFASFADevice, self).render_string(textstate, seq, ncs, graphicstate)
         font = textstate.font
         for obj in seq:
+            if not isinstance(obj, bytes):
+                # For PDF anonymized by VEM's Java software
+                # some obj may no long be bytes but become invalid ints...
+                # skip them
+                _logger.debug("obj = %s is not of bytes type, skipping and appending an empty line", repr(obj))
+                obj = b""
             self.byte_sequences.append(obj)
             self.text_sequences.append("".join([font.to_unichr(c) for c in font.decode(obj)]))
