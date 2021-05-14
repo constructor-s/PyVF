@@ -87,6 +87,11 @@ class HFAPDFParser:
         return HFAPDFParser(BytesIO(anonymized_process.stdout))
 
     def get_value(self, key, offset=1):
+        if key not in self.text_sequences:
+            _logger.debug("Cannot find %s in text_sequences. (PDF may have been modified/anonymized)", repr(key))
+            return ""
+
+        # key exists in self.text_sequences
         key_index = self.text_sequences.index(key)
         # value = self.text_sequences[key_index + offset]
         real_offset = offset
@@ -279,7 +284,7 @@ class HFAPDFParser:
             value_list = self.get_value_list("Total Deviation", offset_start=-4-self.n_td_loc-self.n_vf_loc, length=self.n_vf_loc)
         else:
             value_list = self.get_value_list("Total Deviation", offset_start=-self.n_td_loc*2-self.n_vf_loc, length=self.n_vf_loc)
-        values = [float(i) if i != "<0" else -1 for i in value_list]
+        values = [float(i) if i != "<0" else -1.0 for i in value_list]
         assert all(map(lambda x: x>=-1, values))
         return values
 
@@ -316,18 +321,26 @@ class HFAPDFParser:
     @property
     def md(self):
         for key in ("MD:", "MD24-2:", "MD10-2:", "MD30-2:"):
-            try:
-                return self.get_value(key, offset=1)
-            except ValueError as e:
-                _logger.debug("Cannot find %s, trying other keys: %s", key, e)
+            value = self.get_value(key, offset=1)
+            if value:
+                # If we can find a non-empty string
+                return value
+            else:
+                # If not, keep searching
+                _logger.debug("Cannot find %s, trying other keys.", key)
+                continue
 
     @property
     def psd(self):
         for key in ("PSD:", "PSD24-2:", "PSD10-2:", "PSD30-2:"):
-            try:
-                return self.get_value(key, offset=1)
-            except ValueError as e:
-                _logger.debug("Cannot find %s, trying other keys: %s", key, e)
+            value = self.get_value(key, offset=1)
+            if value:
+                # If we can find a non-empty string
+                return value
+            else:
+                # If not, keep searching
+                _logger.debug("Cannot find %s, trying other keys.", key)
+                continue
 
 
 class HFASFADevice(PDFLayoutAnalyzer):
