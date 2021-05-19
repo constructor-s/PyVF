@@ -65,3 +65,5 @@ if __name__ == '__main__':
         print('parser.psd =', parser.psd)
         print('parser.vfi =', parser.vfi)
         print('parser.ght =', parser.ght)
+        if args.verbose:
+            print(*list(enumerate(map(str, parser._device.render_items))), sep="\n")

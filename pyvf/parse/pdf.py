@@ -30,6 +30,13 @@ from pdfminer.pdfpage import PDFPage
 from pdfminer.pdfparser import PDFParser
 from datetime import datetime, timedelta
 from io import BytesIO
+from dataclasses import dataclass
+from typing import List
+import numpy as np
+import hashlib
+from pdfminer.pdfinterp import PDFTextState, PDFGraphicState
+from pdfminer.pdfcolor import PDFColorSpace
+from pdfminer.pdftypes import PDFStream
 import logging
 _logger = logging.getLogger(__name__)
 
@@ -49,6 +56,7 @@ class HFAPDFParser:
 
         self.byte_sequences = device.byte_sequences
         self.text_sequences = device.text_sequences
+        self._device = device
 
     def anonymize(self, anonymization_fun=lambda x: b""):
         import subprocess
@@ -345,12 +353,14 @@ class HFAPDFParser:
 
 class HFASFADevice(PDFLayoutAnalyzer):
     def __init__(self, rsrcmgr, pageno=1, laparams=None):
-        super(HFASFADevice, self).__init__(rsrcmgr, pageno=1, laparams=None)
+        super(HFASFADevice, self).__init__(rsrcmgr, pageno=pageno, laparams=laparams)
         self.byte_sequences = []
         self.text_sequences = []
+        self.render_items = []
 
     def render_string(self, textstate, seq, ncs, graphicstate):
         super(HFASFADevice, self).render_string(textstate, seq, ncs, graphicstate)
+        self.render_items.append(StringRenderItem(textstate, seq, ncs, graphicstate))
         font = textstate.font
         for obj in seq:
             if not isinstance(obj, bytes):
@@ -361,3 +371,110 @@ class HFASFADevice(PDFLayoutAnalyzer):
                 obj = b""
             self.byte_sequences.append(obj)
             self.text_sequences.append("".join([font.to_unichr(c) for c in font.decode(obj)]))
+
+    def render_image(self, name, stream):
+        super(HFASFADevice, self).render_image(name, stream)
+        self.render_items.append(ImageRenderItem(name, stream))
+
+
+@dataclass(frozen=True)
+class StringRenderItem:
+    textstate: PDFTextState
+    seq: List[bytes]
+    ncs: PDFColorSpace
+    graphicstate: PDFGraphicState
+
+    @property
+    def decoded_seq(self):
+        """
+        Decode the bytes in seq using the font object.
+        Sequences that cannot be parsed as replaced with empty b''.
+
+        Returns
+        -------
+        List[str]
+            List of decoded string
+        """
+        ret = []
+        font = self.textstate.font
+        for obj in self.seq:
+            if not isinstance(obj, bytes):
+                _logger.debug("obj = %s is not of bytes type, skipping and appending an empty line", repr(obj))
+                obj = b""
+            text = "".join([font.to_unichr(c) for c in font.decode(obj)])
+            ret.append(text)
+        return tuple(ret)
+
+    def __str__(self):
+        return "\n".join(self.decoded_seq)
+
+
+@dataclass(frozen=True, repr=False)
+class ImageRenderItem:
+    name: str
+    stream: PDFStream
+
+    # Class attribute storing sha1 hash of image bytes to semantic meaning - pre-generated
+    hash2str = {
+        "2b3f91b0f6b384ae20fbfd6f056adae48c870ab3": 1.0,  # Decompressed
+        "35be72552461ac1bbbf5cd5c6bfaaa4520af6da8": 0.05,  # Decompressed
+        "1bfae8881f1ffbdf84ae1eecb1ddcc54e7fa1937": 0.02,  # Decompressed
+        "534d50117dd5fb4ae70b05aeec3ec022b703ad3b": 0.01,  # Decompressed
+        "6d396f13345b0b4d808c502db975e9d6b2987e88": 0.005,  # Decompressed
+    }
+
+    @property
+    def decoded_value(self):
+        """
+        Get the numerical value that represents the semantic meaning of this image,
+        if it can be interpreted
+
+        Returns
+        -------
+        float
+            Decoded value of the image
+        """
+        return ImageRenderItem.hash2str.get(hashlib.sha1(self.decoded_image.tobytes()).hexdigest(), float("nan"))
+
+    @property
+    def decoded_image(self):
+        """
+        Get the image representation of this object
+
+        Returns
+        -------
+        np.ndarray
+            Image generated from the stream bytes as a numpy array
+        """
+        if self.stream.data is None:
+            self.stream.decode()
+        buffer = self.stream.data
+        if len(buffer) == self.stream.get("Length") + 1 and buffer[-1:] == b"\n":
+            buffer = buffer[:-1]  # Usually there is an extra byte of b"\n" at the end for uncompressed stream...
+        # assert len(buffer) == self.stream.get("Length"), f"Mismatch length of buffer ({len(buffer)}) and length in attribute ({self.stream.get('Length')})"
+        w = self.stream.get("Width")
+        h = self.stream.get("Height")
+        bits_per_component = self.stream.get("BitsPerComponent")
+        if bits_per_component == 8:
+            dtype = np.uint8
+        else:
+            raise NotImplementedError(f"bits_per_component = {bits_per_component} is not yet implemented")
+
+        # for filter_name, params in self.stream.get_filters():  # See pdfminer\image.py
+        #     if filter_name == pdfminer.psparser.LIT("FlateDecode"):
+        #         buffer = zlib.decompress(buffer)
+        #     else:
+        #         raise NotImplementedError(f"filter_name = {filter_name} is unsupported.")
+        # # Lacks apply_png_predictor
+
+        # if len(buffer) != w * h * bits_per_component / 8:
+        #     _logger.error(f"Mismatch image shape ({w}, {h}) and buffer length ({len(buffer)}). Decoding failed.")
+        #     return np.zeros((h, w), dtype=dtype)
+        return np.frombuffer(buffer, dtype=dtype).reshape(h, w)
+
+    def __str__(self):
+        return str(self.decoded_value)
+
+    def __repr__(self):
+        sup = super(ImageRenderItem, self).__repr__()
+        return fr"{self.decoded_value}({self.name}, SHA1:{hashlib.sha1(self.decoded_image.tobytes()).hexdigest()})"+sup
