@@ -34,6 +34,8 @@ from dataclasses import dataclass
 from typing import List
 import numpy as np
 import hashlib
+import re
+from copy import copy
 from pdfminer.pdfinterp import PDFTextState, PDFGraphicState
 from pdfminer.pdfcolor import PDFColorSpace
 from pdfminer.pdftypes import PDFStream
@@ -42,6 +44,18 @@ _logger = logging.getLogger(__name__)
 
 
 class HFAPDFParser:
+    REGEX_PATTERN_242 = "\n".join((
+        "30" + chr(176),
+        "30" + chr(176),
+        "30" + chr(176),
+        r"(?P<vf>(<?\d+\n){54})(?P<vfimg>(.+\n){412})" +
+        r"(?P<td>(-?\d+\n){52})(?P<pd>((-?\d+\n){52})|(MD Threshold exceeded.\nSee Total Deviation plot.\n))" +
+        r"(?P<tdp>([10]\.\d+\n){52})(?P<pdp>(([10]\.\d+\n){52})|(MD Threshold exceeded.\nSee Total Deviation plot.\n))"
+        "Total Deviation",
+        "Pattern Deviation"
+    ))  # Currently only used to parse the vf, td, pd, td probability, pd probability regions
+    REGEX_COMPILED_242 = re.compile(REGEX_PATTERN_242)
+
     def __init__(self, fp):
         fp.seek(0)
         self.raw_pdf = fp.read()  # Save a copy in memory for anonymization
@@ -57,6 +71,9 @@ class HFAPDFParser:
         self.byte_sequences = device.byte_sequences
         self.text_sequences = device.text_sequences
         self._device = device
+        self.regex_match = None
+        if "24-2" in self.pattern:
+            self.regex_match = HFAPDFParser.REGEX_COMPILED_242.search("\n".join(map(str, self._device.render_items)))
 
     def anonymize(self, anonymization_fun=lambda x: b""):
         import subprocess
@@ -205,11 +222,17 @@ class HFAPDFParser:
 
     @property
     def false_positive(self):
-        return self.get_value("False POS Errors:", offset=7)
+        value = self.get_value("False POS Errors:", offset=7)
+        if value == 'N/A':
+            return "nan"
+        return value
 
     @property
     def false_negative(self):
-        return self.get_value("False NEG Errors:", offset=7)
+        value = self.get_value("False NEG Errors:", offset=7)
+        if value == 'N/A':
+            return "nan"
+        return value
 
     @property
     def test_duration(self):
@@ -271,14 +294,14 @@ class HFAPDFParser:
         if self.pattern == "Central 24-2 Threshold Test":
             return 54
         else:
-            raise NotImplementedError()
+            raise NotImplementedError(f"n_vf_loc is not yet implemented for {self.pattern}")
 
     @property
     def n_td_loc(self):
         if self.pattern == "Central 24-2 Threshold Test":
             return 52
         else:
-            raise NotImplementedError()
+            raise NotImplementedError(f"n_td_loc is not yet implemented for {self.pattern}")
 
     @property
     def vf(self):
@@ -311,6 +334,39 @@ class HFAPDFParser:
         else:
             value_list = self.get_value_list("Pattern Deviation", offset_start=-1-self.n_td_loc, length=self.n_td_loc)
             return [float(i) for i in value_list]
+
+    @property
+    def tdp(self):
+        """
+
+        Returns
+        -------
+        List[float]
+            Probability threshold in the total deviation map
+        """
+        if self.regex_match is not None:
+            return list(map(float, self.regex_match.group('tdp').strip().split("\n")))
+        else:
+            _logger.warning("Parsing of TD probability map currently not supported for this file.")
+            return [float("nan") for _ in range(self.n_td_loc)]
+
+    @property
+    def pdp(self):
+        """
+
+        Returns
+        -------
+        List[float]
+            Probability threshold in the pattern deviation map
+        """
+        if self.regex_match is not None:
+            match_lines = self.regex_match.group('pdp').strip().split("\n")
+            if match_lines[0].strip() == "MD Threshold exceeded.":
+                return [float("nan") for _ in range(self.n_td_loc)]
+            return list(map(float, self.regex_match.group('pdp').strip().split("\n")))
+        else:
+            _logger.warning("Parsing of PD probability map currently not supported for this file.")
+            return [float("nan") for _ in range(self.n_td_loc)]
 
     @property
     def ght(self):
@@ -360,7 +416,7 @@ class HFASFADevice(PDFLayoutAnalyzer):
 
     def render_string(self, textstate, seq, ncs, graphicstate):
         super(HFASFADevice, self).render_string(textstate, seq, ncs, graphicstate)
-        self.render_items.append(StringRenderItem(textstate, seq, ncs, graphicstate))
+        self.render_items.append(StringRenderItem(copy(textstate), seq, ncs, graphicstate))  # Must use copy, otherwise font objet is different later on
         font = textstate.font
         for obj in seq:
             if not isinstance(obj, bytes):
@@ -434,7 +490,7 @@ class ImageRenderItem:
         float
             Decoded value of the image
         """
-        return ImageRenderItem.hash2str.get(hashlib.sha1(self.decoded_image.tobytes()).hexdigest(), float("nan"))
+        return ImageRenderItem.hash2str.get(self._get_decoded_image_hash(), float("nan"))
 
     @property
     def decoded_image(self):
@@ -454,6 +510,11 @@ class ImageRenderItem:
         # assert len(buffer) == self.stream.get("Length"), f"Mismatch length of buffer ({len(buffer)}) and length in attribute ({self.stream.get('Length')})"
         w = self.stream.get("Width")
         h = self.stream.get("Height")
+        c = self.stream.get("DecodeParms", {}).get("Colors", 1)
+        if c == 1:
+            # Sometimes in modified files, the image is uncompressed and does not specify how many colors/channels
+            # Maybe could use self.stream.get("ColorSpace") == DeviceRGB (Need to find reference of DeviceRGB literal)
+            c = len(buffer) // w // h
         bits_per_component = self.stream.get("BitsPerComponent")
         if bits_per_component == 8:
             dtype = np.uint8
@@ -470,11 +531,15 @@ class ImageRenderItem:
         # if len(buffer) != w * h * bits_per_component / 8:
         #     _logger.error(f"Mismatch image shape ({w}, {h}) and buffer length ({len(buffer)}). Decoding failed.")
         #     return np.zeros((h, w), dtype=dtype)
-        return np.frombuffer(buffer, dtype=dtype).reshape(h, w)
+        im = np.frombuffer(buffer, dtype=dtype).reshape(h, w, c)
+        return im
+
+    def _get_decoded_image_hash(self):
+        return hashlib.sha1(self.decoded_image[..., 0].tobytes()).hexdigest()
 
     def __str__(self):
         return str(self.decoded_value)
 
     def __repr__(self):
         sup = super(ImageRenderItem, self).__repr__()
-        return fr"{self.decoded_value}({self.name}, SHA1:{hashlib.sha1(self.decoded_image.tobytes()).hexdigest()})"+sup
+        return fr"{self.decoded_value}({self.name}, SHA1:{self._get_decoded_image_hash()})"+sup

@@ -32,38 +32,46 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser("Demo of HFA PDF SFA parsing")
     parser.add_argument("-i", "--input", required=True, nargs="+", help="input.pdf")
     parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("-s", "--silent", action="store_true", help="Suppress print (useful for debugging)")
     args = parser.parse_args()
 
     logging.basicConfig()
     _logger.setLevel(logging.DEBUG if args.verbose else logging.INFO)
     logging.getLogger('pyvf.parse.pdf').setLevel(logging.DEBUG if args.verbose else logging.INFO)
+    if args.silent:
+        fun = lambda *_, **__: None
+    else:
+        fun = print
 
     for inp in chain(*map(glob, args.input)):
         _logger.info("Input: %s", inp)
         with open(inp, "rb") as f:
             parser = HFAPDFParser(f)
         try:
-            print(parser.id)
-        except ValueError as e:
-            _logger.error("Cannot parse ID: %s", e)
-        print('parser.id =', parser.id)
-        print('parser.dob =', parser.dob)
-        print('parser.laterality =', parser.laterality)
-        print('parser.report_type =', parser.report_type)
-        print('parser.pattern =', parser.pattern)
-        print('parser.vf =', parser.vf)
-        print('parser.td =', parser.td)
-        print('parser.pd =', parser.pd)
-        print('parser.false_positive =', parser.false_positive)
-        print('parser.false_negative =', parser.false_negative)
-        print('f"{parser.fixation_loss_error}/{parser.fixation_loss_total}" =', f"{parser.fixation_loss_error}/{parser.fixation_loss_total}")
-        print('parser.test_duration =', parser.test_duration)
-        print('parser.date =', parser.date)
-        print('parser.time =', parser.time)
-        print('parser.age =', parser.age)
-        print('parser.md =', parser.md)
-        print('parser.psd =', parser.psd)
-        print('parser.vfi =', parser.vfi)
-        print('parser.ght =', parser.ght)
+            fun(parser.id)
+            fun('parser.id =', parser.id)
+            fun('parser.dob =', parser.dob)
+            fun('parser.laterality =', parser.laterality)
+            fun('parser.report_type =', parser.report_type)
+            fun('parser.pattern =', parser.pattern)
+            fun('parser.vf =', parser.vf)
+            fun('parser.td =', parser.td)
+            fun('parser.pd =', parser.pd)
+            fun('parser.tdp =', parser.tdp)
+            fun('parser.pdp =', parser.pdp)
+            fun('parser.false_positive =', parser.false_positive)
+            fun('parser.false_negative =', parser.false_negative)
+            fun('f"{parser.fixation_loss_error}/{parser.fixation_loss_total}" =', f"{parser.fixation_loss_error}/{parser.fixation_loss_total}")
+            fun('parser.test_duration =', parser.test_duration)
+            fun('parser.date =', parser.date)
+            fun('parser.time =', parser.time)
+            fun('parser.age =', parser.age)
+            fun('parser.md =', parser.md)
+            fun('parser.psd =', parser.psd)
+            fun('parser.vfi =', parser.vfi)
+            fun('parser.ght =', parser.ght)
+        except Exception as e:
+            _logger.exception("Error in parsing %s:", inp)
+
         if args.verbose:
             print(*list(enumerate(map(str, parser._device.render_items))), sep="\n")
