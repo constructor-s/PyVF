@@ -23,7 +23,7 @@ You should have received a copy of the GNU General Public License
 along with PyVF. If not, see <https://www.gnu.org/licenses/>.
 """
 
-from pdfminer.converter import PDFLayoutAnalyzer
+from pdfminer.converter import PDFLayoutAnalyzer, utils
 from pdfminer.pdfdocument import PDFDocument
 from pdfminer.pdfinterp import PDFResourceManager, PDFPageInterpreter
 from pdfminer.pdfpage import PDFPage
@@ -31,7 +31,7 @@ from pdfminer.pdfparser import PDFParser
 from datetime import datetime, timedelta
 from io import BytesIO
 from dataclasses import dataclass
-from typing import List
+from typing import List, Tuple
 import numpy as np
 import hashlib
 import re
@@ -71,9 +71,10 @@ class HFAPDFParser:
         self.byte_sequences = device.byte_sequences
         self.text_sequences = device.text_sequences
         self._device = device
-        self.regex_match = None
-        if "24-2" in self.pattern:
-            self.regex_match = HFAPDFParser.REGEX_COMPILED_242.search("\n".join(map(str, self._device.render_items)))
+
+    @property
+    def regex_match(self):
+        return HFAPDFParser.REGEX_COMPILED_242.search("\n".join(map(str, self._device.render_items)))
 
     def anonymize(self, anonymization_fun=lambda x: b""):
         import subprocess
@@ -413,10 +414,12 @@ class HFASFADevice(PDFLayoutAnalyzer):
         self.byte_sequences = []
         self.text_sequences = []
         self.render_items = []
+        self._figure_matrix = utils.MATRIX_IDENTITY
 
     def render_string(self, textstate, seq, ncs, graphicstate):
         super(HFASFADevice, self).render_string(textstate, seq, ncs, graphicstate)
-        self.render_items.append(StringRenderItem(copy(textstate), seq, ncs, graphicstate))  # Must use copy, otherwise font objet is different later on
+        matrix = utils.mult_matrix(textstate.matrix, self.ctm)
+        self.render_items.append(StringRenderItem(copy(textstate), seq, ncs, graphicstate, matrix))  # Must use copy, otherwise font objet is different later on
         font = textstate.font
         for obj in seq:
             if not isinstance(obj, bytes):
@@ -428,17 +431,23 @@ class HFASFADevice(PDFLayoutAnalyzer):
             self.byte_sequences.append(obj)
             self.text_sequences.append("".join([font.to_unichr(c) for c in font.decode(obj)]))
 
+    def begin_figure(self, name, bbox, matrix):
+        super(HFASFADevice, self).begin_figure(name, bbox, matrix)
+        self._figure_matrix = matrix # Usually matrix here is identity
+
     def render_image(self, name, stream):
         super(HFASFADevice, self).render_image(name, stream)
-        self.render_items.append(ImageRenderItem(name, stream))
+        matrix = utils.mult_matrix(self._figure_matrix, self.ctm)
+        self.render_items.append(ImageRenderItem(name, stream, matrix))
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class StringRenderItem:
     textstate: PDFTextState
     seq: List[bytes]
     ncs: PDFColorSpace
     graphicstate: PDFGraphicState
+    matrix: Tuple[float]
 
     @property
     def decoded_seq(self):
@@ -464,11 +473,16 @@ class StringRenderItem:
     def __str__(self):
         return "\n".join(self.decoded_seq)
 
+    def __repr__(self):
+        # Order here for convenience of debug, not actual order in constructor
+        return f"{self.__class__.__qualname__}(decoded_seq={self.decoded_seq},matrix={self.matrix},textstate={self.textstate},seq={self.seq},ncs={self.ncs},graphicstate={self.graphicstate})"
+
 
 @dataclass(frozen=True, repr=False)
 class ImageRenderItem:
     name: str
     stream: PDFStream
+    matrix: Tuple[float]
 
     # Class attribute storing sha1 hash of image bytes to semantic meaning - pre-generated
     hash2str = {
@@ -541,5 +555,5 @@ class ImageRenderItem:
         return str(self.decoded_value)
 
     def __repr__(self):
-        sup = super(ImageRenderItem, self).__repr__()
-        return fr"{self.decoded_value}({self.name}, SHA1:{self._get_decoded_image_hash()})"+sup
+        # Order here for convenience of debug, not actual order in constructor
+        return f"{self.__class__.__qualname__}(decoded_value={self.decoded_value},matrix={self.matrix},_get_decoded_image_hash()={self._get_decoded_image_hash()},name={self.name},stream={self.stream})"
