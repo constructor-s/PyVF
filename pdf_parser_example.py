@@ -33,6 +33,7 @@ if __name__ == '__main__':
     parser.add_argument("-i", "--input", required=True, nargs="+", help="input.pdf")
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("-s", "--silent", action="store_true", help="Suppress print (useful for debugging)")
+    parser.add_argument("-d", "--dump", required=False, help="Dump PDF parser internal representation")
     args = parser.parse_args()
 
     logging.basicConfig()
@@ -73,5 +74,6 @@ if __name__ == '__main__':
         except Exception as e:
             _logger.exception("Error in parsing %s:", inp)
 
-        if args.verbose:
-            print(*list(enumerate(map(str, parser._device.render_items))), sep="\n")
+        if args.dump:
+            with open(args.dump, "w") as f:
+                f.writelines(map(lambda x: repr(x) + "\n", parser._device.render_items))
