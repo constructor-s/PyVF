@@ -66,7 +66,13 @@ def _load_saplocmap(filename):
 
     """
     _logger.debug("loading: %s", filename)
-    dtype = [("xod", np.float32),("yod", np.float32),("loc", np.int32),("size", np.float32),("jmangle", np.float32),("jmslope", np.float32),("region", np.int32)]
+    if filename.endswith("extended.csv"):
+        _logger.debug("Assuming extended format", filename)
+        dtype = [("xod", np.float32), ("yod", np.float32), ("loc", np.int32),
+                 ("size", np.float32), ("jmangle", np.float32), ("jmslope", np.float32), ("region", np.int32),
+                 ("blindspot", np.bool), ("ghregion", np.int32)]
+    else:
+        dtype = [("xod", np.float32),("yod", np.float32),("loc", np.int32),("size", np.float32),("jmangle", np.float32),("jmslope", np.float32),("region", np.int32)]
     with pkg_resources.open_text(saplocmap, filename) as f:
         return np.loadtxt(f, dtype=dtype, delimiter=",", skiprows=1)
 
@@ -74,7 +80,7 @@ def _load_saplocmap(filename):
 #          X_DEGREES, Y_DEGREES, INDEX, GOLDMANN_SIZE, ???, ???, REGION_LABEL_INT
 PATTERN_SINGLE = np.array([(3, 3, 0, GOLDMANN_III, 205.37, 0.096369, 1)], dtype=[("xod", np.float32),("yod", np.float32),("loc", np.int32),("size", np.float32),("jmangle", np.float32),("jmslope", np.float32),("region", np.int32)])
 PATTERN_DOUBLE = np.array([(3, 3, 0, GOLDMANN_III, 205.37, 0.096369, 1), (3,-3,1,GOLDMANN_III,162.98,-0.091919,1)], dtype=[("xod", np.float32),("yod", np.float32),("loc", np.int32),("size", np.float32),("jmangle", np.float32),("jmslope", np.float32),("region", np.int32)])
-PATTERN_P24D2 = _load_saplocmap("saplocmap_p24d2.csv")
+PATTERN_P24D2 = _load_saplocmap("saplocmap_p24d2_extended.csv")
 PATTERN_P30D2 = _load_saplocmap("saplocmap_p30d2.csv")
 PATTERN_P10D2 = _load_saplocmap("saplocmap_p10d2.csv")
 

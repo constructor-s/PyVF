@@ -27,6 +27,8 @@ along with PyVF. If not, see <https://www.gnu.org/licenses/>.
 import numpy as np
 import warnings
 from pyvf.strategy import XOD, YOD, PATTERN_P24D2
+import logging
+_logger = logging.getLogger(__name__)
 
 nan = np.nan
 
@@ -80,19 +82,26 @@ class Model:
     def get_std(self):
         raise NotImplementedError()
 
+    def _get_non_blindspot_mask(self):
+        try:
+            non_blindspot = ~(self.param['eval_pattern']["blindspot"])
+        except ValueError:
+            _logger.warning("No blindspot field available in eval_pattern, falling back to using valid std values")
+            std = self.get_std()
+            non_blindspot = std > 0
+        return non_blindspot
+
     def get_td(self, vf):
-        td = vf - self.get_mean()
-        std = self.get_std()
-        # If std is non-positive or NaN then it is excluded -
-        # usually this is used to indicate two locations near blindspots
-        non_blindspot = std > 0
+        mean = self.get_mean()
+        assert mean.shape == vf.shape
+        td = vf - mean
+        non_blindspot = self._get_non_blindspot_mask()
         td[~non_blindspot] = np.nan
         return td
 
     def get_pd(self, vf):
         td = self.get_td(vf)
-        std = self.get_std()
-        non_blindspot = std > 0
+        non_blindspot = self._get_non_blindspot_mask()
         td_nbs = td[non_blindspot]
         # TODO: Make sure general height is calculated at 85% percentile without blindspots, though the difference is likely insignificant anyways
         general_height = np.percentile(td_nbs, self.param['gh_percentile'] * 100)
@@ -100,24 +109,31 @@ class Model:
         return pd
 
     def get_md(self, vf):
+        non_blindspot = self._get_non_blindspot_mask()
+
         std = self.get_std()
-        non_blindspot = std > 0
+        std_valid = np.isfinite(std) & (std > 0)
 
-        std = std[non_blindspot]
+        std = std[non_blindspot & std_valid]
         weights = 1.0 / (std ** 2)
-        weights = weights * 1.0 / np.sum(weights)
+        weights_normalized = weights * 1.0 / np.sum(weights)
+        assert np.allclose(weights_normalized.sum(), 1.0)
 
-        return np.dot(weights, self.get_td(vf)[non_blindspot])
+        td_nbs = self.get_td(vf)[non_blindspot & std_valid]
+
+        return np.dot(td_nbs, weights_normalized)
 
     def get_psd(self, vf=None, td_nbs=None, md=None, method="r"):
-        std = self.get_std()
-        non_blindspot = std > 0
+        non_blindspot = self._get_non_blindspot_mask()
 
-        std = std[non_blindspot]
+        std = self.get_std()
+        std_valid = np.isfinite(std) & (std > 0)
+
+        std = std[non_blindspot & std_valid]
         weights = 1.0 / (std ** 2)
 
         if td_nbs is None:
-            td_nbs = self.get_td(vf)[non_blindspot]
+            td_nbs = self.get_td(vf)[non_blindspot & std_valid]
 
         if method.lower() == "r" or method.lower() == "turpin":
             # Weighted standard deviation of TD (i.e. Marin-Franch2013 R package)
