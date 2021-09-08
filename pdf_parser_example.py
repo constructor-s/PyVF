@@ -75,5 +75,5 @@ if __name__ == '__main__':
             _logger.exception("Error in parsing %s:", inp)
 
         if args.dump:
-            with open(args.dump, "w") as f:
+            with open(args.dump, "w", encoding="utf-8") as f:
                 f.writelines(map(lambda x: repr(x) + "\n", parser._device.render_items))

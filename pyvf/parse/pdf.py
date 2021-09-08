@@ -226,6 +226,7 @@ class HFAPDFParser:
         value = self.get_value_try_multiple_methods((
             {"key": "Patient ID:", "offset": 2},
             {"key": "Version", "offset": -4},
+            {"key": "Single Field Analysis", "offset": -1}
         ), validate_fun=lambda value: value == "OS" or value == "OD")
         return value
 
@@ -235,6 +236,7 @@ class HFAPDFParser:
         value = self.get_value_try_multiple_methods((
             {"key": "Patient ID:", "offset": 3},
             {"key": "Version", "offset": -3},
+            {"key": "Central 24-2 Threshold Test", "offset": -1}
         ), validate_fun=lambda value: value == "Single Field Analysis")
         return value
 
@@ -243,6 +245,7 @@ class HFAPDFParser:
         value = self.get_value_try_multiple_methods((
             {"key": "Patient ID:", "offset": 4},
             {"key": "Version", "offset": -2},
+            {"key": "Single Field Analysis", "offset": 1}
         ), validate_fun=lambda value: "24-2" in value or "10-2" in value or "30-2" in value)
         return value
 
@@ -320,20 +323,27 @@ class HFAPDFParser:
 
     @property
     def date(self):
-        value = self.get_value("Date:", offset=3)
+        # value = self.get_value("Date:", offset=3)
+        value = self.get_value_from_matrix((1.0, 0.0, 0.0, 1.0, 504.5, 688.25))
+        value = value.replace("\n", "")
         dt = datetime.strptime(value, "%b %d, %Y")
         return dt.date()
 
     @property
     def time(self):
-        value = self.get_value("Time:", offset=3)
+        # value = self.get_value("Time:", offset=3)
+        value = self.get_value_from_matrix((1.0, 0.0, 0.0, 1.0, 504.5, 677.75))
+        value = value.replace("\n", "")
         dt = datetime.strptime(value, "%I:%M %p")
         return dt.time()
 
     @property
     def age(self):
-        value = self.get_value("Age:", offset=3)
-        return float(value)
+        # value = self.get_value("Age:", offset=3)
+        value = self.get_value_from_matrix((1.0, 0.0, 0.0, 1.0, 504.5, 667.25))
+        value = float(value)
+        assert 0 <= value <= 130
+        return value
 
     @property
     def n_vf_loc(self):
