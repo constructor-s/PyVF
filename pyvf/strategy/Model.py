@@ -25,6 +25,7 @@ along with PyVF. If not, see <https://www.gnu.org/licenses/>.
 """
 
 import numpy as np
+import pandas  # Do not import as pd to avoid collision with pattern deviation
 import warnings
 from pyvf.strategy import XOD, YOD, PATTERN_P24D2
 import logging
@@ -92,6 +93,7 @@ class Model:
         return non_blindspot
 
     def get_td(self, vf):
+        vf = np.asarray(vf)
         mean = self.get_mean()
         assert mean.shape == vf.shape
         td = vf - mean
@@ -99,12 +101,17 @@ class Model:
         td[~non_blindspot] = np.nan
         return td
 
-    def get_pd(self, vf):
+    def get_gh(self, vf):
         td = self.get_td(vf)
         non_blindspot = self._get_non_blindspot_mask()
         td_nbs = td[non_blindspot]
         # TODO: Make sure general height is calculated at 85% percentile without blindspots, though the difference is likely insignificant anyways
         general_height = np.percentile(td_nbs, self.param['gh_percentile'] * 100)
+        return general_height
+
+    def get_pd(self, vf):
+        td = self.get_td(vf)
+        general_height = self.get_gh(vf)
         pd = td - general_height
         return pd
 
@@ -154,6 +161,55 @@ class Model:
             return np.sqrt(psd_squared)
         else:
             raise ValueError("Invalid method: " + method)
+
+    def get_vf_stats(self, vf):
+        """
+        Vectorized version of visual field indices calculation
+        Currently assumes 24-2 visual fields
+
+        Parameters
+        ----------
+        vf : ndarray
+            Array of N \times 54 visual field data
+
+        Returns
+        -------
+        Dataframe containing the indices
+        """
+        # Format VF and age input
+        vf = np.atleast_2d(vf)
+        N, M = vf.shape
+        age = np.array(self.param['age']).reshape(N, 1)
+
+        # calculate baseline
+        mean = self._get_vf_stats_mean(age)
+
+        ## Total Deviation
+        total_deviation = vf - mean
+
+        ## General Height
+        general_height = np.nanpercentile(total_deviation,
+                                          self.param['gh_percentile'] * 100,
+                                          axis=1, keepdims=True)
+
+        ## Pattern Deviation
+        pattern_deviation = total_deviation - general_height
+
+        columns_headers = ["gh"]
+        columns_headers.extend([f"TD{i}" for i in range(total_deviation.shape[1])])
+        columns_headers.extend([f"PD{i}" for i in range(pattern_deviation.shape[1])])
+
+        data = np.column_stack([general_height, total_deviation, pattern_deviation])
+        return pandas.DataFrame(data=data, columns=columns_headers)
+
+    def _get_vf_stats_mean(self, age):
+        """
+        Helper function for get_vf_stats
+        to obtain the baseline
+        """
+        intercept = np.array(self.param["intercept"]).reshape(1, -1)
+        slope = np.array(self.param["slope"]).reshape(1, -1)
+        return slope * age + intercept
 
 
 class AgeLinearModel(Model):
@@ -311,7 +367,7 @@ class TPP2020p24d2Model(AgeLinearModel):
 class RVisualFieldsp24d2Model(AgeLinearModel):
     """
     """
-    def __init__(self, eval_pattern, age, *args, **kwargs):
+    def __init__(self, eval_pattern=PATTERN_P24D2, age=None, *args, **kwargs):
         intercept = np.array((29.92888, 30.29715, 30.38557, 30.19415, 31.51319, 32.16129, 32.52956, 32.61798, 32.42656, 31.95530, 32.22227, 33.15021, 33.79832, 34.16658, 34.25500, 34.06359, 33.59233, 32.84123, 32.05612, 33.26391, 34.19186, 34.83996, 35.20822, 35.29665, 35.10523,      np.nan, 33.88287, 32.50238, 33.71017, 34.63812, 35.28622, 35.65448, 35.74291, 35.55149,      np.nan, 34.32913, 33.56105, 34.48900, 35.13710, 35.50536, 35.59379, 35.40237, 34.93111, 34.18001, 33.74449, 34.39260, 34.76086, 34.84928, 34.65786, 34.18661, 33.05271, 33.42097, 33.50940, 33.31798, ))
         slope = np.array((-0.06315807, -0.06012610, -0.06084715, -0.06532122, -0.06343690, -0.05665189, -0.05361992, -0.05434097, -0.05881504, -0.06704215, -0.06995794, -0.05941990, -0.05263489, -0.04960292, -0.05032397, -0.05479804, -0.06302515, -0.07500529, -0.08272118, -0.06843011, -0.05789208, -0.05110707, -0.04807509, -0.04879614, -0.05327022,         np.nan, -0.07347747, -0.08368254, -0.06939147, -0.05885344, -0.05206843, -0.04903645, -0.04975750, -0.05423158,         np.nan, -0.07443882, -0.07284201, -0.06230397, -0.05551897, -0.05248699, -0.05320804, -0.05768212, -0.06590922, -0.07788936, -0.06824369, -0.06145868, -0.05842670, -0.05914775, -0.06362183, -0.07184894, -0.06988758, -0.06685560, -0.06757665, -0.07205073, ))
         sds = np.array((
@@ -321,8 +377,13 @@ class RVisualFieldsp24d2Model(AgeLinearModel):
 
 class HFASitaStandardp24d2Model(AgeLinearModel):
     """
-    Values from SG and NP study
+    Values from SG and NP study's HFA SFA reports
     """
+    # Row 0: Intercept 0 years old
+    # Row 1: Slope db per year
+    # Row 2: Normalized weights for MD. Note the +15, -9 OD point is also nan
+    # Row 3: Example of normal values for a 50 year old
+    # Row 4: Rough estimates of the equivalent standard deviation values at each location based on Row 2
     _DATA = np.array([[31.349933293, 31.312414416, 31.169739532, 30.882612385,
         32.588484259, 33.076235356, 33.133126378, 33.243637973,
         32.593688003, 32.25872542 , 32.309453205, 33.403797913,
@@ -402,7 +463,7 @@ class HFASitaStandardp24d2Model(AgeLinearModel):
 
 class TPP2021p24d2Model(AgeLinearModel):
     """
-    Values from SG and NP study
+    Values from SG-NP-ON study, in reference to HFASitaStandardp24d2Model (HFA SFA)
     """
     # _PARABOLA_OFFSET = np.array([
     #     [-1.7492476, -1.84760367, -1.84760367, -1.7492476, -1.84760367,
