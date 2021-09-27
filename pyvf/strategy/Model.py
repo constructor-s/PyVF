@@ -28,26 +28,50 @@ import numpy as np
 import pandas  # Do not import as pd to avoid collision with pattern deviation
 import warnings
 from pyvf.strategy import XOD, YOD, PATTERN_P24D2
+from .ModelDefaults import DEFAULT_PARAMETERS
 import logging
 _logger = logging.getLogger(__name__)
 
 nan = np.nan
 
-def wtd_var(x, weights=None, normwt=False):
+def wtd_var(x, weights=None, normwt=False, method="unbiased"):
     '''
+    R sginature:
+    function (x, weights = NULL, normwt = FALSE, na.rm = TRUE, method = c("unbiased", "ML"))
+
     https://github.com/harrelfe/Hmisc/blob/8bbb192103e0091398cb58b257ed590e481cfa35/R/wtd.stats.s#L15
-    TODO: Previous note: This function does not produce the exact same result as the R package, but accurate within 0.1 dB so good for our purpose for now
+
     This implementation is consistent with the definition of weighted variance with frequency weights
     # https://en.wikipedia.org/wiki/Weighted_arithmetic_mean#Frequency_weights
-    but slightly different from described in Heijl's A package for the statistical analysis of visual fields
+    but different from described in Heijl's A package for the statistical analysis of visual fields
     The weights passed in should be the inverse of variances, not standard deviations.
     The return is variance (i.e. square of PSD), not standard deviation
     '''
     if weights is None:
         return np.var(x)
 
+    x = np.asarray(x)
+    weights = np.asarray(weights)
+
     if normwt:
         weights = weights * len(x) * 1.0 / np.sum(weights)  # Normalizes sum(weights) to len(x) = n
+
+    if normwt or method.upper() == "ML":
+        # R stats::cov.wt
+        # function (x, wt = rep(1/nrow(x), nrow(x)), cor = FALSE, center = TRUE, method = c("unbiased", "ML"))
+        wt = weights * 1.0 / np.sum(weights)
+        center = np.dot(wt, x)
+        x = np.sqrt(wt) * (x - center)  # R: sqrt(wt) * sweep(x, 2, center, check.margin = FALSE)
+        # R:   cov <- switch(match.arg(method), unbiased = crossprod(x)/(1 -
+        #     sum(wt^2)), ML = crossprod(x))
+        # TODO: R crossprod is "matrix cross-product", which is dot product?
+        if method.lower() == "unbiased":
+            cov = np.dot(x, x) / (1.0 - np.sum(wt ** 2))
+        elif method.upper() == "ML":
+            cov = np.dot(x, x)
+        else:
+            raise ValueError(f"Invalid method = {method}")
+        return cov
 
     sw = np.sum(weights)
     if sw <= 1:
@@ -61,7 +85,7 @@ class Model:
     """
     Base class for models for calculating normal healthy population threshold values
     """
-    def __init__(self, eval_pattern, age=None, gh_percentile=0.85, *args, **kwargs):
+    def __init__(self, eval_pattern, age=None, *args, **kwargs):
         """
 
         Parameters
@@ -72,10 +96,10 @@ class Model:
         kwargs
         """
         self.args = args
-        self.param = kwargs
+        self.param = DEFAULT_PARAMETERS
+        self.param.update(kwargs)
         self.param['eval_pattern'] = eval_pattern
         self.param['age'] = age
-        self.param['gh_percentile'] = gh_percentile
 
     def get_mean(self):
         raise NotImplementedError()
@@ -170,11 +194,11 @@ class Model:
         Parameters
         ----------
         vf : ndarray
-            Array of N \times 54 visual field data
+            Array of N x 54 visual field data (54 for 24-2 pattern)
 
         Returns
         -------
-        Dataframe containing the indices
+        Dataframe containing the calculated statistics
         """
         # Format VF and age input
         vf = np.atleast_2d(vf)
@@ -195,17 +219,26 @@ class Model:
         ## Pattern Deviation
         pattern_deviation = total_deviation - general_height
 
-        columns_headers = ["gh"]
+        ## MD, PSD
+        mask = self.param['md_weights'] != 0  # Need this mask to remove nans
+        mean_deviation = total_deviation[:, mask] @ self.param['md_weights'][mask].reshape(-1, 1)
+        pattern_standard_deviation = np.apply_along_axis(wtd_var, axis=1, arr=pattern_deviation[:, mask],
+                                                         weights=self.param['psd_weights'][mask], normwt=True)
+        pattern_standard_deviation = np.sqrt(pattern_standard_deviation)  # Take the sqrt of the var
+
+        # Save data into a dataframe
+        # Generate the column headers
+        columns_headers = ["gh", "md", "psd"]
         columns_headers.extend([f"TD{i}" for i in range(total_deviation.shape[1])])
         columns_headers.extend([f"PD{i}" for i in range(pattern_deviation.shape[1])])
-
-        data = np.column_stack([general_height, total_deviation, pattern_deviation])
+        # Concatenate data columns
+        data = np.column_stack([general_height, mean_deviation, pattern_standard_deviation, total_deviation, pattern_deviation])
         return pandas.DataFrame(data=data, columns=columns_headers)
 
     def _get_vf_stats_mean(self, age):
         """
         Helper function for get_vf_stats
-        to obtain the baseline
+        to obtain the baseline (normative mean values)
         """
         intercept = np.array(self.param["intercept"]).reshape(1, -1)
         slope = np.array(self.param["slope"]).reshape(1, -1)
