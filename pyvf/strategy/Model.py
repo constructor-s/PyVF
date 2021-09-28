@@ -198,7 +198,7 @@ class Model:
 
         Returns
         -------
-        Dataframe containing the calculated statistics
+            Dataframe containing the calculated statistics
         """
         # Format VF and age input
         vf = np.atleast_2d(vf)
@@ -210,6 +210,7 @@ class Model:
 
         ## Total Deviation
         total_deviation = vf - mean
+        total_deviation_p = self._get_vf_stats_probability_map(total_deviation, self.param["td_thresholds"])
 
         ## General Height
         general_height = np.nanpercentile(total_deviation,
@@ -218,6 +219,7 @@ class Model:
 
         ## Pattern Deviation
         pattern_deviation = total_deviation - general_height
+        pattern_deviation_p = self._get_vf_stats_probability_map(pattern_deviation, self.param["pd_thresholds"])
 
         ## MD, PSD
         mask = self.param['md_weights'] != 0  # Need this mask to remove nans
@@ -231,8 +233,11 @@ class Model:
         columns_headers = ["gh", "md", "psd"]
         columns_headers.extend([f"TD{i}" for i in range(total_deviation.shape[1])])
         columns_headers.extend([f"PD{i}" for i in range(pattern_deviation.shape[1])])
+        columns_headers.extend([f"TDP{i}" for i in range(total_deviation_p.shape[1])])
+        columns_headers.extend([f"PDP{i}" for i in range(pattern_deviation_p.shape[1])])
         # Concatenate data columns
-        data = np.column_stack([general_height, mean_deviation, pattern_standard_deviation, total_deviation, pattern_deviation])
+        data = np.column_stack([general_height, mean_deviation, pattern_standard_deviation,
+                                total_deviation, pattern_deviation, total_deviation_p, pattern_deviation_p])
         return pandas.DataFrame(data=data, columns=columns_headers)
 
     def _get_vf_stats_mean(self, age):
@@ -243,6 +248,32 @@ class Model:
         intercept = np.array(self.param["intercept"]).reshape(1, -1)
         slope = np.array(self.param["slope"]).reshape(1, -1)
         return slope * age + intercept
+
+    @staticmethod
+    def _get_vf_stats_probability_map(total_deviation, thresholds_dict):
+        """
+
+        Parameters
+        ----------
+        total_deviation : ndarray
+            N x M array containing the visual field information for N visual fields.
+            This could either be the total deviation or pattern deviation
+
+        thresholds_dict : dict
+            Dictionary mapping p value thresholds (0.05, 0.01, 0.005, ...)
+            to an array of threshold values with length M
+
+        Returns
+        -------
+        ndarray
+            Probability map with same size as input total_deviation
+        """
+        total_deviation_p = np.ones_like(total_deviation, dtype=np.float64)
+        # Iterate from high to low p = 0.05, 0.01, 0.005, ...
+        for p in sorted(thresholds_dict, reverse=True):
+            total_deviation_p = np.where(total_deviation < thresholds_dict[p], p, total_deviation_p)
+        total_deviation_p = np.where(np.isnan(total_deviation), np.nan, total_deviation_p)
+        return total_deviation_p
 
 
 class AgeLinearModel(Model):
