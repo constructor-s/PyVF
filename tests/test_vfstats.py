@@ -40,7 +40,7 @@ class TestVFStats(TestCase):
 
     def test_vf_stats(self):
         # model = model_cls(age=self.age_array, gh_percentile=(46-1)/(52-1))
-        model = pyvf.strategy.Model.Model(eval_pattern=pyvf.strategy.Model.PATTERN_P24D2, age=self.age_array, **pyvf.strategy.ModelDefaults.R_PARAMETERS)
+        model = pyvf.strategy.Model.Model(age=self.age_array, **pyvf.strategy.ModelDefaults.R_P24D2_PARAMETERS)
         vf_stats = model.get_vf_stats(vf=self.vf_array)
 
         nan = np.nan
@@ -83,10 +83,23 @@ class TestVFStats(TestCase):
         age_array = np.array([53, 72, 67, 66, 90]).reshape(5, 1)
         VFI_TRUTH = [89.72188, 93.57302, 72.86794, 59.77338, 17.90212]
 
-        model = pyvf.strategy.Model.Model(eval_pattern=pyvf.strategy.Model.PATTERN_P24D2, age=age_array,
-                                          **pyvf.strategy.ModelDefaults.R_PARAMETERS)
+        model = pyvf.strategy.Model.Model(age=age_array,
+                                          **pyvf.strategy.ModelDefaults.R_P24D2_PARAMETERS)
         vf_stats = model.get_vf_stats(vf=vf_array)
         self.assertTrue(np.allclose(vf_stats["vfi"], VFI_TRUTH, atol=1e-3))
+
+    def test_vf_stats_sitas(self):
+        vf_array = np.array([[24,23,23,24,20,19,17,21,24,22,17,4,10,12,19,0,23,27,18,13,26,28,28,30,28,16,28,22,27,30,30,29,31,29,0,27,30,29,30,30,31,30,28,28,26,29,26,27,28,30,25,25,27,31],
+                             [22,19,19,19,27,24,21,25,25,25,20,26,28,27,28,24,26,25,0,24,26,28,24,28,23,17,26,9,25,28,27,31,31,29,0,23,27,26,29,28,28,22,23,20,22,26,26,25,24,17,25,25,22,15],
+                             [32,28,25,25,21,27,24,26,24,28,8,22,24,23,25,23,23,25,0,1,6,0,10,0,0,23,22,25,25,26,27,27,28,27,0,20,28,27,25,27,27,25,23,23,25,26,26,27,26,22,27,24,25,23],
+                             [26,26,28,27,28,29,28,27,29,27,21,29,31,29,29,31,28,26,10,26,11,21,0,0,0,29,27,0,0,0,0,0,31,28,20,29,5,0,28,29,28,25,25,27,12,22,11,26,25,26,0,18,25,24],
+                             [3, 7, 0, 0, 3, 7, 8, 6, 6, 4, 1, 2, 3, 7, 7, 2, 8, 1, 0, 9, 8, 0, 6, 8, 3, 1, 3, 7, 9, 6, 1, 7, 7, 9, 3, 1, 7, 6, 7, 7, 7, 2, 1, 4, 0, 4, 1, 1, 9, 8, 6, 1, 9, 2]])
+        age_array = np.array([53, 72, 67, 66, 90]).reshape(5, 1)
+
+        model = pyvf.strategy.Model.Model(age=age_array,
+                                          **pyvf.strategy.ModelDefaults.SITAS_P24D2_PARAMETERS)
+        vf_stats = model.get_vf_stats(vf=vf_array)
+        self.assertFalse(np.any(np.isnan(vf_stats.iloc[:, :10].values))) # First few columns should not involve blind spot so should not be nan
 
     def test_wtd_var(self):
         x = [6, 11, 4, 4, 14, 15, 12, 16, 3, 15]

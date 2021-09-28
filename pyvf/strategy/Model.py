@@ -28,7 +28,7 @@ import numpy as np
 import pandas  # Do not import as pd to avoid collision with pattern deviation
 import warnings
 from pyvf.strategy import XOD, YOD, PATTERN_P24D2
-from .ModelDefaults import DEFAULT_PARAMETERS
+from .ModelDefaults import SITAS_P24D2_PARAMETERS
 import logging
 _logger = logging.getLogger(__name__)
 
@@ -96,7 +96,7 @@ class Model:
         kwargs
         """
         self.args = args
-        self.param = DEFAULT_PARAMETERS
+        self.param = dict(SITAS_P24D2_PARAMETERS)  # Need to make a shallow copy
         self.param.update(kwargs)
         self.param['eval_pattern'] = eval_pattern
         self.param['age'] = age
@@ -222,10 +222,12 @@ class Model:
         pattern_deviation_p = self._get_vf_stats_probability_map(pattern_deviation, self.param["pd_thresholds"])
 
         ## MD, PSD
-        mask = self.param['md_weights'] != 0  # Need this mask to remove nans
-        mean_deviation = total_deviation[:, mask] @ self.param['md_weights'][mask].reshape(-1, 1)
+        md_weights = np.asarray(self.param['md_weights'])
+        psd_weights = np.asarray(self.param['psd_weights'])
+        mask = md_weights != 0  # Need this mask to remove nans, MD and PSD weights must have same mask
+        mean_deviation = total_deviation[:, mask] @ md_weights[mask].reshape(-1, 1)
         pattern_standard_deviation = np.apply_along_axis(wtd_var, axis=1, arr=pattern_deviation[:, mask],
-                                                         weights=self.param['psd_weights'][mask], normwt=True)
+                                                         weights=psd_weights[mask], normwt=True)
         pattern_standard_deviation = np.sqrt(pattern_standard_deviation)  # Take the sqrt of the var
 
         ## VFI
