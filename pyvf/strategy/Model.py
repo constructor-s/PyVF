@@ -206,10 +206,10 @@ class Model:
         age = np.array(self.param['age']).reshape(N, 1)
 
         # calculate baseline
-        mean = self._get_vf_stats_mean(age)
+        baseline_mean = self._get_vf_stats_mean(age)
 
         ## Total Deviation
-        total_deviation = vf - mean
+        total_deviation = vf - baseline_mean
         total_deviation_p = self._get_vf_stats_probability_map(total_deviation, self.param["td_thresholds"])
 
         ## General Height
@@ -228,15 +228,21 @@ class Model:
                                                          weights=self.param['psd_weights'][mask], normwt=True)
         pattern_standard_deviation = np.sqrt(pattern_standard_deviation)  # Take the sqrt of the var
 
+        ## VFI
+        from itertools import starmap
+        visual_field_indices = list(starmap(self._get_vf_stats_vfindex, zip(
+            vf, baseline_mean, mean_deviation, total_deviation, total_deviation_p, pattern_deviation_p
+        )))
+
         # Save data into a dataframe
         # Generate the column headers
-        columns_headers = ["gh", "md", "psd"]
+        columns_headers = ["gh", "md", "psd", "vfi"]
         columns_headers.extend([f"TD{i}" for i in range(total_deviation.shape[1])])
         columns_headers.extend([f"PD{i}" for i in range(pattern_deviation.shape[1])])
         columns_headers.extend([f"TDP{i}" for i in range(total_deviation_p.shape[1])])
         columns_headers.extend([f"PDP{i}" for i in range(pattern_deviation_p.shape[1])])
         # Concatenate data columns
-        data = np.column_stack([general_height, mean_deviation, pattern_standard_deviation,
+        data = np.column_stack([general_height, mean_deviation, pattern_standard_deviation, visual_field_indices,
                                 total_deviation, pattern_deviation, total_deviation_p, pattern_deviation_p])
         return pandas.DataFrame(data=data, columns=columns_headers)
 
@@ -274,6 +280,42 @@ class Model:
             total_deviation_p = np.where(total_deviation < thresholds_dict[p], p, total_deviation_p)
         total_deviation_p = np.where(np.isnan(total_deviation), np.nan, total_deviation_p)
         return total_deviation_p
+
+    def _get_vf_stats_vfindex(self, vf,
+                              baseline_mean, mean_deviation,
+                              total_deviation, total_deviation_p,
+                              pattern_deviation_p):
+        """
+        Translation of core algorithm in R visualFields function vfindex
+
+        Note all inputs are 1d arrays. Does not support vectorization.
+
+        Returns
+        -------
+        float
+            VFI (mvfi) for one visual field
+        """
+        perc = self.param["vfi_perc"]
+        rank_ref = self.param["locr_pd"]
+        # if (!(vfindices$mtdev[i] < td2pdcutoff & tdp_iter[order(td_iter,
+        #       decreasing = TRUE)[rankRef]] <= perc))
+        if not (mean_deviation < self.param["md_threshold"] and
+                total_deviation_p[total_deviation.argsort()[-rank_ref]] < perc):
+            vfiloc = np.where(pattern_deviation_p > perc,
+                              100,
+                              100 * (1 - np.abs(total_deviation / baseline_mean)))
+            vfiloc = np.where(vf == 0, 0, vfiloc)
+        else:
+            vfiloc = np.where(total_deviation_p > perc,
+                              100,
+                              100 * (1 - np.abs(total_deviation / baseline_mean)))
+            vfiloc = np.where(vf == 0, 0, vfiloc)
+
+        # Finally calculated weighted average
+        vfi_weights = np.asarray(self.param["vfi_weights"])
+        mask = vfi_weights != 0  # Blind spots should have zero weight, not nan
+        mvfi = np.dot(vfi_weights[mask], vfiloc[mask]) / np.nansum(vfi_weights)
+        return mvfi
 
 
 class AgeLinearModel(Model):
