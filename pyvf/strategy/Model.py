@@ -186,7 +186,7 @@ class Model:
         else:
             raise ValueError("Invalid method: " + method)
 
-    def get_vf_stats(self, vf):
+    def get_vf_stats(self, vf, psd_method="unbiased"):
         """
         Vectorized version of visual field indices calculation
         Currently assumes 24-2 visual fields
@@ -226,9 +226,20 @@ class Model:
         psd_weights = np.asarray(self.param['psd_weights'])
         mask = md_weights != 0  # Need this mask to remove nans, MD and PSD weights must have same mask
         mean_deviation = total_deviation[:, mask] @ md_weights[mask].reshape(-1, 1)
-        pattern_standard_deviation = np.apply_along_axis(wtd_var, axis=1, arr=pattern_deviation[:, mask],
-                                                         weights=psd_weights[mask], normwt=True)
-        pattern_standard_deviation = np.sqrt(pattern_standard_deviation)  # Take the sqrt of the var
+        if psd_method.lower() == "heijl":
+            n = (~np.isnan(total_deviation).all(axis=0)).sum()  # Should be 52 for 24-2
+            s2 = self.param["sds_pd"]
+            psd2 = 1.0 / n * np.nansum(s2) * 1.0 / (n - 1)
+            psd2 *= np.nansum((total_deviation - mean_deviation) ** 2 / s2, axis=1)
+            pattern_standard_deviation = np.sqrt(psd2)
+            # In recent version of numpy, if an input row is all nan, it outputs 0.0
+            # see https://stackoverflow.com/q/48405592/6610243
+            # we want to maintain if all input is nan to output nan
+            pattern_standard_deviation[np.isnan(total_deviation).all(axis=1)] = np.nan
+        else:
+            pattern_standard_deviation = np.apply_along_axis(wtd_var, axis=1, arr=pattern_deviation[:, mask],
+                                                             weights=psd_weights[mask], normwt=True, method=psd_method)
+            pattern_standard_deviation = np.sqrt(pattern_standard_deviation)  # Take the sqrt of the var
 
         ## VFI
         from itertools import starmap

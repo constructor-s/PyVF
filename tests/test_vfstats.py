@@ -95,7 +95,7 @@ class TestVFStats(TestCase):
 
         model = pyvf.strategy.Model.Model(age=age_array,
                                           **pyvf.strategy.ModelDefaults.SITAS_P24D2_PARAMETERS)
-        vf_stats = model.get_vf_stats(vf=vf_array)
+        vf_stats = model.get_vf_stats(vf=vf_array, psd_method="heijl")
         self.assertFalse(np.any(np.isnan(vf_stats.iloc[:, :10].values))) # First few columns should not involve blind spot so should not be nan
 
         # print(vf_stats)
@@ -105,7 +105,7 @@ class TestVFStats(TestCase):
             "vfi": [99, 72]
         }
         self.assertTrue(np.allclose(vf_stats["md"], TRUTH["md"], atol=0.2), msg="SITA-S MD failed")
-        self.assertTrue(np.allclose(vf_stats["psd"], TRUTH["psd"], atol=1.5), msg="SITA-S PSD failed")
+        self.assertTrue(np.allclose(vf_stats["psd"], TRUTH["psd"], atol=0.5), msg="SITA-S PSD failed")
         self.assertTrue(np.allclose(vf_stats["vfi"], TRUTH["vfi"], atol=5), msg="SITA-S VFI failed")
 
     def test_wtd_var(self):
