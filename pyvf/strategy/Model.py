@@ -236,6 +236,8 @@ class Model:
             # see https://stackoverflow.com/q/48405592/6610243
             # we want to maintain if all input is nan to output nan
             pattern_standard_deviation[np.isnan(total_deviation).all(axis=1)] = np.nan
+        elif psd_method.lower() == "simple":
+            pattern_standard_deviation = np.nanstd(total_deviation, ddof=1, axis=1)
         else:
             pattern_standard_deviation = np.apply_along_axis(wtd_var, axis=1, arr=pattern_deviation[:, mask],
                                                              weights=psd_weights[mask], normwt=True, method=psd_method)
