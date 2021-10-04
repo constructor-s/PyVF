@@ -247,6 +247,13 @@ class Model:
             vf, baseline_mean, mean_deviation, total_deviation, total_deviation_p, pattern_deviation_p
         )))
 
+        ## GHT
+        glaucoma_hemifield_test = list(starmap(self._get_vf_stats_ght_single, zip(
+            mean_deviation.ravel(),
+            general_height.ravel(),
+            (row for i, row in self._get_vf_stats_ght_sector_score(pattern_deviation, pattern_deviation_p).iterrows())
+        )))
+
         # Save data into a dataframe
         # Generate the column headers
         columns_headers = ["gh", "md", "psd", "vfi"]
@@ -257,7 +264,10 @@ class Model:
         # Concatenate data columns
         data = np.column_stack([general_height, mean_deviation, pattern_standard_deviation, visual_field_indices,
                                 total_deviation, pattern_deviation, total_deviation_p, pattern_deviation_p])
-        return pandas.DataFrame(data=data, columns=columns_headers)
+        vf_stats_df = pandas.DataFrame(data=data, columns=columns_headers)
+        # GHT is string so needs to be separately handled
+        vf_stats_df.insert(0, "ght", glaucoma_hemifield_test)
+        return vf_stats_df
 
     def _get_vf_stats_mean(self, age):
         """
@@ -312,7 +322,7 @@ class Model:
         rank_ref = self.param["locr_pd"]
         # if (!(vfindices$mtdev[i] < td2pdcutoff & tdp_iter[order(td_iter,
         #       decreasing = TRUE)[rankRef]] <= perc))
-        if not (mean_deviation < self.param["md_threshold"] and
+        if not (mean_deviation < self.param["vfi_td2pdcutoff"] and
                 total_deviation_p[total_deviation.argsort()[-rank_ref]] < perc):
             vfiloc = np.where(pattern_deviation_p > perc,
                               100,
@@ -329,6 +339,110 @@ class Model:
         mask = vfi_weights != 0  # Blind spots should have zero weight, not nan
         mvfi = np.dot(vfi_weights[mask], vfiloc[mask]) / np.nansum(vfi_weights)
         return mvfi
+
+    def _get_vf_stats_ght_single(self, md, gh, sector_score):
+        """
+        Calculate a single GHT value (i.e. does not support vectorization)
+        TODO: What happens when some or all values are NaN?
+
+        Parameters
+        ----------
+        md : float
+
+        gh : float
+
+        sector_score : pandas.Series | dict
+        A structure storing delta and sigma scores of the superior and inferior sectors 1 to 5.
+        See the GHT paper (Asman, Heijl 1992) for details.
+
+        Returns
+        -------
+        str
+        One of the GHT classifcations
+        """
+        ght_parameters = self.param
+
+        if md < ght_parameters['md_threshold']:
+            return "Outside Normal Limits"
+        elif gh > ght_parameters['gh_995']:
+            return "Abnormally High Sensitivity"
+        elif (abs(sector_score["SCORE_1_DELTA"]) > ght_parameters['delta_010'] or
+              abs(sector_score["SCORE_2_DELTA"]) > ght_parameters['delta_010'] or
+              abs(sector_score["SCORE_3_DELTA"]) > ght_parameters['delta_010'] or
+              abs(sector_score["SCORE_4_DELTA"]) > ght_parameters['delta_010'] or
+              abs(sector_score["SCORE_5_DELTA"]) > ght_parameters['delta_010']):
+            return "Outside Normal Limits"
+        elif ((sector_score["SCORE_1_SUP"] > ght_parameters['sigma_005'] and sector_score["SCORE_1_INF"] > ght_parameters['sigma_005']) or
+              (sector_score["SCORE_2_SUP"] > ght_parameters['sigma_005'] and sector_score["SCORE_2_INF"] > ght_parameters['sigma_005']) or
+              (sector_score["SCORE_3_SUP"] > ght_parameters['sigma_005'] and sector_score["SCORE_3_INF"] > ght_parameters['sigma_005']) or
+              (sector_score["SCORE_4_SUP"] > ght_parameters['sigma_005'] and sector_score["SCORE_4_INF"] > ght_parameters['sigma_005']) or
+              (sector_score["SCORE_5_SUP"] > ght_parameters['sigma_005'] and sector_score["SCORE_5_INF"] > ght_parameters['sigma_005'])):
+            return "Outside Normal Limits"
+        elif (abs(sector_score["SCORE_1_DELTA"]) > ght_parameters['delta_030'] or
+              abs(sector_score["SCORE_2_DELTA"]) > ght_parameters['delta_030'] or
+              abs(sector_score["SCORE_3_DELTA"]) > ght_parameters['delta_030'] or
+              abs(sector_score["SCORE_4_DELTA"]) > ght_parameters['delta_030'] or
+              abs(sector_score["SCORE_5_DELTA"]) > ght_parameters['delta_030']):
+            if gh < ght_parameters['gh_005']:
+                return 'Borderline/General Reduction'
+            else:
+                return 'Borderline'
+        elif gh < ght_parameters['gh_005']:
+            return 'General Reduction of Sensitivity'
+        else:
+            return 'Within Normal Limits'
+
+    def _get_vf_stats_ght_pdp_score(self, pd_, prob):
+        """
+
+        Parameters
+        ----------
+        pd_ : ndarray
+        Pattern deviation
+
+        prob : ndarray
+        Pattern deviation probabilities - same shape as pattern deviation
+
+        Returns
+        -------
+        pandas.DataFrame
+        DataFrame with columns SCORE0, SCORE1, ...
+        """
+        ght_parameters = self.param
+
+        score = np.zeros_like(prob, dtype=np.float64)
+        score[prob <= 0.05] = 2.0
+        score[prob <= 0.02] = 5.0
+        score[prob <= 0.01] = (10.0 * pd_ / ght_parameters['pd_thresholds'][0.01])[prob <= 0.01]
+        return pandas.DataFrame(score).add_prefix("SCORE")
+
+    def _get_vf_stats_ght_sector_score(self, pattern_deviation, pattern_deviation_p):
+        score = self._get_vf_stats_ght_pdp_score(pattern_deviation, pattern_deviation_p).to_numpy()
+
+        score_1_sup = score[:, [21, 22, 23]].sum(axis=1)
+        score_1_inf = score[:, [30, 31, 32]].sum(axis=1)
+        score_2_sup = score[:, [12, 13, 14, 15]].sum(axis=1)
+        score_2_inf = score[:, [38, 39, 40, 41]].sum(axis=1)
+        score_3_sup = score[:, [10, 11, 18, 19, 20]].sum(axis=1)
+        score_3_inf = score[:, [27, 28, 29, 36, 37]].sum(axis=1)
+        score_4_sup = score[:, [0, 1, 4, 5, 6, 7]].sum(axis=1)
+        score_4_inf = score[:, [44, 45, 46, 47, 50, 51]].sum(axis=1)
+        score_5_sup = score[:, [2, 3, 8, 9]].sum(axis=1)
+        score_5_inf = score[:, [48, 49, 52, 53]].sum(axis=1)
+
+        ret = pandas.DataFrame(np.column_stack([score_1_sup, score_1_inf, score_1_sup - score_1_inf,
+                                                score_2_sup, score_2_inf, score_2_sup - score_2_inf,
+                                                score_3_sup, score_3_inf, score_3_sup - score_3_inf,
+                                                score_4_sup, score_4_inf, score_4_sup - score_4_inf,
+                                                score_5_sup, score_5_inf, score_5_sup - score_5_inf, ]),
+                               columns=["SCORE_1_SUP", "SCORE_1_INF", "SCORE_1_DELTA",
+                                        "SCORE_2_SUP", "SCORE_2_INF", "SCORE_2_DELTA",
+                                        "SCORE_3_SUP", "SCORE_3_INF", "SCORE_3_DELTA",
+                                        "SCORE_4_SUP", "SCORE_4_INF", "SCORE_4_DELTA",
+                                        "SCORE_5_SUP", "SCORE_5_INF", "SCORE_5_DELTA", ])
+
+        return ret
+
 
 
 class AgeLinearModel(Model):

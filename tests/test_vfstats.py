@@ -96,7 +96,7 @@ class TestVFStats(TestCase):
         model = pyvf.strategy.Model.Model(age=age_array,
                                           **pyvf.strategy.ModelDefaults.SITAS_P24D2_PARAMETERS)
         vf_stats = model.get_vf_stats(vf=vf_array, psd_method="heijl")
-        self.assertFalse(np.any(np.isnan(vf_stats.iloc[:, :10].values))) # First few columns should not involve blind spot so should not be nan
+        self.assertFalse(np.any(np.isnan(vf_stats.iloc[:, 1:25].values))) # First few columns should not involve blind spot so should not be nan
 
         # print(vf_stats)
         TRUTH = {
