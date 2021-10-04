@@ -114,3 +114,15 @@ class TestVFStats(TestCase):
         self.assertAlmostEqual(pyvf.strategy.Model.wtd_var(x, np.array(weights) * 10, normwt=False), 28.5156704291, places=6)
         self.assertAlmostEqual(pyvf.strategy.Model.wtd_var(x, weights, normwt=True), 28.3183944336, places=6)
         self.assertAlmostEqual(pyvf.strategy.Model.wtd_var(x, weights, normwt=True, method="ML"), 25.4186109894, places=6)
+
+    def test_ght(self):
+        vf_array = [
+            [23.0, 24.0, 25.0, 19.0, 24.0, 26.0, 25.0, 23.0, 24.0, 24.0, 20.0, 25.0, 27.0, 27.0, 23.0, 25.0, 25.0, 22.0, 23.0, 24.0, 28.0, 26.0, 26.0, 28.0, 27.0, 13.0, 26.0, 23.0, 25.0, 27.0, 28.0, 28.0, 29.0, 26.0, 4.0, 26.0, 26.0, 28.0, 29.0, 28.0, 28.0, 29.0, 26.0, 27.0, 24.0, 27.0, 27.0, 25.0, 29.0, 24.0, 21.0, 26.0, 25.0, 27.0]
+        ]
+        age_array = [48.0]
+        model = pyvf.strategy.Model.Model(age=age_array,
+                                          **pyvf.strategy.ModelDefaults.SITAS_P24D2_PARAMETERS)
+        vf_stats = model.get_vf_stats(vf=vf_array, psd_method="heijl")
+        print(vf_stats["gh"])
+        model = pyvf.strategy.Model.HFASitaStandardp24d2Model(eval_pattern=pyvf.strategy.PATTERN_P24D2, age=age_array[0])
+        print(model.get_gh(vf_array[0]))
