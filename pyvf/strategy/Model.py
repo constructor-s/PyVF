@@ -224,6 +224,8 @@ class Model:
         ## MD, PSD
         md_weights = np.asarray(self.param['md_weights'])
         psd_weights = np.asarray(self.param['psd_weights'])
+        assert np.isclose(md_weights.sum(), 1), "MD weights must sum to one"
+        assert np.isclose(psd_weights.sum(), 1), "PSD weights must sum to one"
         mask = md_weights != 0  # Need this mask to remove nans, MD and PSD weights must have same mask
         mean_deviation = total_deviation[:, mask] @ md_weights[mask].reshape(-1, 1)
         if psd_method.lower() == "heijl":
