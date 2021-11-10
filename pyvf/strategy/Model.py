@@ -263,8 +263,8 @@ class Model:
         columns_headers = ["gh", "md", "psd", "vfi"]
         columns_headers.extend([f"TD{i}" for i in range(total_deviation.shape[1])])
         columns_headers.extend([f"PD{i}" for i in range(pattern_deviation.shape[1])])
-        columns_headers.extend([f"TDP{i}" for i in range(total_deviation_p.shape[1])])
-        columns_headers.extend([f"PDP{i}" for i in range(pattern_deviation_p.shape[1])])
+        columns_headers.extend([f"TDp{i}" for i in range(total_deviation_p.shape[1])])
+        columns_headers.extend([f"PDp{i}" for i in range(pattern_deviation_p.shape[1])])
         # Concatenate data columns
         data = np.column_stack([general_height, mean_deviation, pattern_standard_deviation, visual_field_indices,
                                 total_deviation, pattern_deviation, total_deviation_p, pattern_deviation_p])
