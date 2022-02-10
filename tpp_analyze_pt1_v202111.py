@@ -21,12 +21,16 @@ field_names = ["id", "comment", "timestamp", "dob", "routine", "duration", "eye"
                "fl_error", "fl_total", "fp_error", "fp_total", "fn_error", "fn_total",
                "md", "psd", "vfi", "ght", "path"]
 field_names.extend([f"L{i}" for i in range(68)])
-field_names.extend([f"TDp{i}" for i in range(54)])
-field_names.extend([f"PDp{i}" for i in range(54)])
+field_names.extend([f"TD{i}" for i in range(68)])
+field_names.extend([f"PD{i}" for i in range(68)])
+field_names.extend([f"TDp{i}" for i in range(68)])
+field_names.extend([f"PDp{i}" for i in range(68)])
 defaults = ["", "", np.nan, np.nan, np.nan, "", "", "", np.nan, np.nan, np.nan, "", ""]  # This needs to be updated...
 defaults.extend([np.nan for _ in range(68)])
-defaults.extend([np.nan for _ in range(54)])
-defaults.extend([np.nan for _ in range(54)])
+defaults.extend([np.nan for _ in range(68)])
+defaults.extend([np.nan for _ in range(68)])
+defaults.extend([np.nan for _ in range(68)])
+defaults.extend([np.nan for _ in range(68)])
 SummaryEntry = namedtuple("SummaryEntry", field_names=field_names, defaults=defaults)
 
 df_entries = []
@@ -81,10 +85,12 @@ for d in args.input_folders:
 
         if routine.upper().startswith("TPP242"):
 
-            model = pyvf.strategy.Model.HFASitaStandardp24d2Model(  # pyvf.strategy.Model.Heijl1987p24d2Model(
+            model = pyvf.strategy.Model.Model(  # .HFASitaStandardp24d2Model(  # pyvf.strategy.Model.Heijl1987p24d2Model(
                 age=(test_datetime-datetime(dob.year, dob.month, dob.day)).days/365.25,
-                eval_pattern=pyvf.strategy.PATTERN_P24D2
+                # eval_pattern=pyvf.strategy.PATTERN_P24D2
+                **pyvf.strategy.ModelDefaults.SITAS_P24D2_PARAMETERS
             )
+            OFFSET = +1.4
 
         elif routine.upper().startswith("TPP102"):
             # model = pyvf.strategy.Model.TPP2020p24d2Model(  # pyvf.strategy.Model.Heijl1987p24d2Model(
@@ -95,11 +101,19 @@ for d in args.input_folders:
         else:
             raise NotImplementedError(f"routine = {routine} is not yet implemented")
 
-        thresholds = tuple(float(loc[3]) for loc in data["locations"])
+        thresholds = np.array(data["locations"])[:, 3]  # tuple(float(loc[3]) for loc in data["locations"])
         kwargs = {f"L{i}": v for i, v in enumerate(thresholds)}
+        vf_stats_dict = {}
         if model is not None:
-            kwargs.update({f"TDp{i}": v for i, v in enumerate(scipy.stats.norm.cdf(model.get_td(thresholds) * 1.0 / model.get_std()))})
-            kwargs.update({f"PDp{i}": v for i, v in enumerate(scipy.stats.norm.cdf(model.get_pd(thresholds) * 1.0 / model.get_std()))})
+            vf_stats = model.get_vf_stats(thresholds, psd_method="heijl")
+            assert vf_stats.shape[0] == 1
+            vf_stats_dict = vf_stats.iloc[0].to_dict()
+            # kwargs.update({f"TDp{i}": v for i, v in enumerate(scipy.stats.norm.cdf(model.get_td(thresholds) * 1.0 / model.get_std()))})
+            # kwargs.update({f"PDp{i}": v for i, v in enumerate(scipy.stats.norm.cdf(model.get_pd(thresholds) * 1.0 / model.get_std()))})
+        kwargs.update({f"TD{i}": vf_stats_dict.get(f"TD{i}", np.nan) for i in range(len(thresholds))})
+        kwargs.update({f"PD{i}": vf_stats_dict.get(f"PD{i}", np.nan) for i in range(len(thresholds))})
+        kwargs.update({f"TDp{i}": vf_stats_dict.get(f"TDp{i}", np.nan) for i in range(len(thresholds))})
+        kwargs.update({f"PDp{i}": vf_stats_dict.get(f"PDp{i}", np.nan) for i in range(len(thresholds))})
         se = SummaryEntry(id=p.name,
                           comment="/".join(comments),
                           timestamp=test_datetime,
@@ -108,10 +122,10 @@ for d in args.input_folders:
                           duration=(float(test_stop["timestamp"])-float(test_start["timestamp"])) / 1000.0,
                           eye=eye,
                           path=str(test_data_file),
-                          md=model.get_md(thresholds) if model is not None else np.nan,
-                          psd=model.get_psd(thresholds) if model is not None else np.nan,
-                          vfi=vfi,
-                          ght=ght,
+                          md=vf_stats_dict.get(f"md", np.nan),
+                          psd=vf_stats_dict.get(f"psd", np.nan),
+                          vfi=vf_stats_dict.get(f"vfi", np.nan),
+                          ght=vf_stats_dict.get(f"ght", np.nan),
                           pattern=routine,
                           strategy=routine,
                           fl_error=int(data["reliability"]["fixationLossCatch"]),

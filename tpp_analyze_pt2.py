@@ -6,6 +6,7 @@ import pyvf.strategy.Model
 import pyvf.plot
 import pandas as pd
 import numpy as np
+import scipy.stats
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
@@ -30,7 +31,24 @@ tests_duration_weeks = tests_duration.apply(lambda x: x.days/7.0)
 tests_n = df[df["comment"]!="invalid"].groupby(["id", "eye"])["timestamp"].count()
 
 #%%
-for name, group in df[(df["comment"]!="invalid") & (df["comment"]!="exclude")].groupby(["id", "eye"]):
+for name, group_all in df.groupby(["id", "eye"]):
+    # TODO: This is to plot only one subject, make this an argument
+    # if name[0] not in [11]:
+    #     continue
+    print(name)
+    print(group_all.loc[:, ['timestamp', 'fl_error', 'fl_total', 'fp_error', 'fp_total', 'fn_error', 'fn_total',
+       'md', 'psd', 'vfi', 'ght']].to_string())
+    mask = ((group_all["comment"]!="exclude") &
+              (group_all["comment"] != "invalid") &
+              (group_all["routine"] == "TPP242") &
+              (group_all["fl_error"] / group_all["fl_total"] <= 0.20) &
+              (group_all["fp_error"] / group_all["fp_total"] <= 0.20) &
+              (group_all["fn_error"] / group_all["fn_total"] <= 0.20))
+    mask.iloc[-1:] = True # Force include last test
+    # print(mask)
+    # mask &= group_all["timestamp"] > datetime(2021, 1, 1)
+    group = group_all[mask]
+
     fig, ax = plt.subplots(1, 1, figsize=(8.5, 8.5))
     plotter = pyvf.plot.VFPlotManager()
     if name[1].upper() == "OD":
@@ -52,10 +70,19 @@ for name, group in df[(df["comment"]!="invalid") & (df["comment"]!="exclude")].g
         ax2.hist(group[f"L{i}"], bins=np.arange(-4, 40.1, 4), orientation='horizontal', color=plt.cm.gray(mpl.colors.Normalize(-35, 45)(group[f"L{i}"].mean())), zorder=-10)
         ax2.set(xticks=())
         ax2.set_ylim([-1, 40])
-        axin.scatter(group["timestamp"], group[f"L{i}"], s=5, c=group[f"L{i}"], cmap=plt.cm.viridis, norm=mpl.colors.Normalize(0, 60), zorder=0)
+        axin.scatter(group["timestamp"], group[f"L{i}"], s=2, c=group[f"L{i}"], cmap=plt.cm.viridis, norm=mpl.colors.Normalize(0, 60), zorder=0)
         lfit = np.poly1d(np.polyfit(pd.to_numeric(group["timestamp"]), group[f"L{i}"], 1))
         axin.plot(group["timestamp"], lfit(pd.to_numeric(group["timestamp"])), 'k--', linewidth=1, zorder=10)
         axin.set_ylim([-1, 40])
+
+        regression_result = scipy.stats.linregress((group["timestamp"]-group["timestamp"].iloc[0]).dt.days/365.25, group[f"L{i}"])
+        if regression_result.slope < 0 and regression_result.pvalue < 0.05:
+            legend = axin.legend([], facecolor="None", edgecolor="red",
+                                 title=f"{regression_result.slope:+.1f},p={regression_result.pvalue:.3f}")
+        else:
+            legend = axin.legend([], facecolor="None", edgecolor="None",
+                                 title=f"{regression_result.slope:+.1f},p={regression_result.pvalue:.3f}")
+        plt.setp(legend.get_title(), fontsize='xx-small')
 
     if name[1].upper() == "OD":
         top_left_i = 0
@@ -71,8 +98,12 @@ for name, group in df[(df["comment"]!="invalid") & (df["comment"]!="exclude")].g
     axi = inset_axes(plotter.ax, width="100%", height="100%", loc=3,
                      bbox_to_anchor=(0.03, 0.02, 0.26, 0.17), bbox_transform=plotter.ax.transAxes,
                      borderpad=0, axes_kwargs={"zorder": 10})
-    axi.scatter(group["timestamp"], group["md"], s=5, c=group["md"], marker="s", cmap=plt.cm.viridis, norm=mpl.colors.Normalize(-30, 30), zorder=0)
-    axi.legend(fontsize="small", facecolor="None", edgecolor="None", title="MD")
+    axi.scatter(group["timestamp"], group["md"], s=2, c=group["md"], marker="s", cmap=plt.cm.viridis, norm=mpl.colors.Normalize(-30, 30), zorder=0)
+    regression_result = scipy.stats.linregress((group["timestamp"] - group["timestamp"].iloc[0]).dt.days / 365.25, group["md"])
+    if regression_result.slope < 0 and regression_result.pvalue < 0.05:
+        axi.legend([], facecolor="None", edgecolor="red", title=f"MD:{regression_result.slope:+.3f} db/yr,p={regression_result.pvalue:.3f}")
+    else:
+        axi.legend([], facecolor="None", edgecolor="None", title=f"MD:{regression_result.slope:+.3f} db/yr,p={regression_result.pvalue:.3f}")
     lfit = np.poly1d(np.polyfit(pd.to_numeric(group["timestamp"]), group["md"], 1))
     axi.plot(group["timestamp"], lfit(pd.to_numeric(group["timestamp"])), 'k--', linewidth=1, zorder=+20)
     ylim = axi.get_ylim()
@@ -89,9 +120,10 @@ for name, group in df[(df["comment"]!="invalid") & (df["comment"]!="exclude")].g
     axi = inset_axes(plotter.ax, width="100%", height="100%", loc=3,
                      bbox_to_anchor=(0.73, 0.02, 0.26, 0.17), bbox_transform=plotter.ax.transAxes,
                      borderpad=0, axes_kwargs={"zorder": 10})
-    axi.scatter(group["timestamp"], group["psd"], s=5, c=group["psd"], marker="s", cmap=plt.cm.viridis_r,
+    axi.scatter(group["timestamp"], group["psd"], s=2, c=group["psd"], marker="s", cmap=plt.cm.viridis_r,
                 norm=mpl.colors.Normalize(-20, 20), zorder=0)
-    axi.legend(fontsize="small", facecolor="None", edgecolor="None", title="PSD")
+    regression_result = scipy.stats.linregress((group["timestamp"] - group["timestamp"].iloc[0]).dt.days / 365.25, group["psd"])
+    axi.legend([], facecolor="None", edgecolor="None", title=f"PSD:{regression_result.slope:+.3f} db/yr,p={regression_result.pvalue:.3f}")
     lfit = np.poly1d(np.polyfit(pd.to_numeric(group["timestamp"]), group["psd"], 1))
     axi.plot(group["timestamp"], lfit(pd.to_numeric(group["timestamp"])), 'k--', linewidth=1, zorder=+20)
     ylim = axi.get_ylim()

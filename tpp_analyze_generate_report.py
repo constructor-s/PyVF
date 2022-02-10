@@ -63,6 +63,7 @@ def grouper(iterable, n, fillvalue=None):
 parser = ArgumentParser()
 parser.add_argument("-i", "--input", required=True, type=str, help="Output from part 1")
 parser.add_argument("-o", "--output-dir", required=True, type=str, help="HTML output directory")
+parser.add_argument("--id", required=True, type=int, help="Subject ID")
 parser.add_argument("--template", required=True, type=str, help="")
 args = parser.parse_args()
 
@@ -81,8 +82,8 @@ for s in stylesheets:
 
 template_soup = soup  # rename the variable for clarify # TODO: Refactor
 
-df = pd.read_csv(args.input, keep_default_na=False)
-df = df[df["id"] == 9]
+df = pd.read_csv(args.input) # , keep_default_na=False)
+df = df[df["id"] == args.id]
 df = df[df["comment"] != "invalid"]
 df["timestamp"] = pd.to_datetime(df["timestamp"])
 df["dob"] = pd.to_datetime(df["dob"])
@@ -133,13 +134,13 @@ for group_name, group in df.groupby(["id", "eye"]):
                     processed_comment = "High FN"
                 else:
                     processed_comment = ""
-            curr_soup.select("#overview-container .value-comment")[i].string = processed_comment
+            curr_soup.select("#overview-container .value-comment")[i].string = processed_comment if not pd.isna(processed_comment) else "NIL"
 
-            curr_soup.select("#overview-container .value-fl")[i].string = f"{item.fl_error}/{item.fl_total}"
-            curr_soup.select("#overview-container .value-fn")[i].string = f"{item.fn_error}/{item.fn_total}"
-            curr_soup.select("#overview-container .value-fp")[i].string = f"{item.fp_error}/{item.fp_total}"
+            curr_soup.select("#overview-container .value-fl")[i].string = f"{item.fl_error}/{item.fl_total}={(item.fl_error*100.0/item.fl_total) if item.fl_total else 0.0:.0f}%"
+            curr_soup.select("#overview-container .value-fn")[i].string = f"{item.fn_error}/{item.fn_total}={(item.fn_error*100.0/item.fn_total) if item.fn_total else 0.0:.0f}%"
+            curr_soup.select("#overview-container .value-fp")[i].string = f"{item.fp_error}/{item.fp_total}={(item.fp_error*100.0/item.fp_total) if item.fp_total else 0.0:.0f}%"
             curr_soup.select("#overview-container .value-ght")[i].string = f"{item.ght}"
-            curr_soup.select("#overview-container .value-vfi")[i].string = f"{item.vfi}%"
+            curr_soup.select("#overview-container .value-vfi")[i].string = f"{item.vfi:.0f}%"
             curr_soup.select("#overview-container .value-md")[i].string = f"{item.md:.1f} dB"
             curr_soup.select("#overview-container .value-psd")[i].string = f"{item.psd:.1f} dB"
 
@@ -158,8 +159,8 @@ for group_name, group in df.groupby(["id", "eye"]):
             vf_vis_ele = curr_soup.select("#overview-container .vf-vis")[i]
             td_sig_ele = curr_soup.select("#overview-container .td-sig")[i]
             pd_sig_ele = curr_soup.select("#overview-container .pd-sig")[i]
-            td_legend = OrderedDict(sorted(json.loads(td_sig_ele["data-legend"])["char"].items(), reverse=False))
-            pd_legend = OrderedDict(sorted(json.loads(pd_sig_ele["data-legend"])["char"].items(), reverse=False))
+            td_legend = OrderedDict(sorted(((float(k), v) for k, v in json.loads(td_sig_ele["data-legend"])["char"].items()), reverse=False))
+            pd_legend = OrderedDict(sorted(((float(k), v) for k, v in json.loads(pd_sig_ele["data-legend"])["char"].items()), reverse=False))
 
             for r in range(10):
                 for c in range(10):
@@ -173,7 +174,7 @@ for group_name, group in df.groupby(["id", "eye"]):
                                              (td_legend, pd_legend)):
                         if np.isfinite(mat[r, c]):
                             for k, v in leg.items():  # k are p values sorted in ascending order, v is the legend character
-                                if mat[r, c] <= float(k) / 100.0:
+                                if mat[r, c] <= k / 100.0:
                                     ele.select_one(f".vf10x10-{r}-{c}").string = v
                                     break
                         else:
@@ -186,7 +187,7 @@ for group_name, group in df.groupby(["id", "eye"]):
                     if np.isfinite(vf_matrix_20x20[r, c]):
                         ele["class"].append(f"v{round(vf_matrix_20x20[r, c])}")
 
-        with open(f"output_{group_name[0]}_{group_name[1]}_{page_i}.html", "wb") as f:
+        with open(Path(args.output_dir) / f"output_{group_name[0]}_{group_name[1]}_{page_i}.html", "wb") as f:
             f.write(curr_soup.encode("utf-8"))
 
 
