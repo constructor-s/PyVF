@@ -102,10 +102,12 @@ class Model:
         self.param['age'] = age
 
     def get_mean(self):
-        raise NotImplementedError()
+        ret = self._get_vf_stats_mean(self.param['age'])[0, :]
+        ret[np.isnan(ret)] = 10 # set blindspot to 10
+        return ret
 
     def get_std(self):
-        raise NotImplementedError()
+        return np.sqrt(self.param["sds_sens"])
 
     def _get_non_blindspot_mask(self):
         try:

@@ -23,6 +23,8 @@ along with PyVF. If not, see <https://www.gnu.org/licenses/>.
 from unittest import TestCase
 from pyvf import stats
 import numpy as np
+from pyvf.stats import pdf_stats
+
 
 class Testrv_histogram2(TestCase):
     def test_mul(self):
@@ -157,3 +159,6 @@ class Testrv_histogram2(TestCase):
         lp_wrapper = lp(lambda *args, **kwargs: [fun() for _ in range(1000)])
         lp_wrapper()
         lp.print_stats(output_unit=1e-6)
+
+    def test_variance(self):
+        self.assertAlmostEqual(pdf_stats.variance(np.arange(41), np.ones(41)), (41 * 41 - 1) / 12)
