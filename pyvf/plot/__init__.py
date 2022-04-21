@@ -132,7 +132,7 @@ def get_pretty_print_grid(pattern=PATTERN_P24D2):
     ], left, top, dx, dy
 
 
-def pretty_print_vf(x, pattern=None, fmt=None, apply_style=False, outside_val=np.inf, vmin=0, vmax=28):
+def pretty_print_vf(x, pattern=None, fmt=False, apply_style=False, outside_val=np.inf, vmin=0, vmax=28):
     """
     Requires pandas 1.3.0
 
@@ -156,16 +156,14 @@ def pretty_print_vf(x, pattern=None, fmt=None, apply_style=False, outside_val=np
 
     data = [[outside_val for _ in range(int(-left*2/dx+1))] for _ in range(int(top*2/dy+1))]  # TODO: Remove hard coded table size of 10 x 10
     for idx, i, j in pretty_print_vf_positions:
-        if fmt is None:
-            data[i][j] = x[idx]
-        elif not apply_style:
-            data[i][j] = fmt % x[idx]
+        data[i][j] = x[idx]
     df = pd.DataFrame(data, columns=np.arange(left, -left+1, dx), index=np.arange(top, -top-1, -dy))
-    if not apply_style:
+    if not apply_style and not fmt:
         return df
     else:
-        styled = df.style.background_gradient(axis=None, vmin=vmin, vmax=vmax, cmap='gray')
-        if fmt is None:
-            return styled
-        else:
-            return styled.format(lambda v: (fmt % v) if np.isfinite(v) else "", na_rep='?')
+        styled = df.style
+        if apply_style:
+            styled = df.style.background_gradient(axis=None, vmin=vmin, vmax=vmax, cmap='gray')
+        if fmt:
+            styled = styled.format(lambda v: (fmt % v) if np.isfinite(v) else "", na_rep='?')
+        return styled
