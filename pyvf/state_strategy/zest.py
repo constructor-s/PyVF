@@ -1,3 +1,4 @@
+from __future__ import annotations
 from abc import ABC
 from functools import cached_property
 from typing import Callable
@@ -9,19 +10,36 @@ from attrs import evolve, Factory
 from . import Trial, State, StateNode, PointState
 from ..stats.pos import pos_ramp
 
+EPS = 1e-3
+
+
+def shift(q, offset, low_indices=1, eps=EPS):
+    if offset == 0:
+        return np.array(q)
+
+    result = np.zeros_like(q)
+    result[:low_indices] = q[:low_indices]
+    if offset < 0:  # Move left
+        result[low_indices:offset] = q[low_indices - offset:]
+        result[low_indices] += np.sum(q[low_indices:low_indices - offset])
+        return result.clip(eps, None)
+    else:  # Move right
+        result[low_indices + offset:] = q[low_indices:-offset]
+        result[-1] += np.sum(q[-offset:])
+        return result.clip(eps, None)
+
 
 @attr.s(auto_attribs=True, slots=False, kw_only=True, frozen=True)
 class BayesianPointState(PointState, ABC):
     x: np.ndarray
     q0: np.ndarray
     pos_fun: Callable[[np.ndarray], float] = lambda x: pos_ramp(x, center=0, yl=0.95, yr=0.05, width=4.0)
-    pretest: float
-    starting: float = Factory(lambda self: self.pretest, takes_self=True)
     q_update: np.ndarray = Factory(lambda self: np.ones_like(self.x, dtype=np.float64), takes_self=True)
     terminate_std: float = 1.5
+    trials: int = 0
 
     @cached_property
-    def q(self):
+    def q(self) -> np.ndarray:
         q = self.q0 * self.q_update
         return 1.0 / q.sum() * q
 
@@ -32,25 +50,42 @@ class BayesianPointState(PointState, ABC):
     @cached_property
     def var(self) -> float:
         mean2 = self.mean ** 2
-        ex2 = (self.x**2) @ self.q
+        ex2 = (self.x ** 2) @ self.q
         return ex2 - mean2
 
     @cached_property
-    def terminated(self):
-        return self.var < self.terminate_std ** 2
+    def terminated(self) -> bool:
+        return self.trials > 0 and self.var < self.terminate_std ** 2
 
-    def with_trial(self, trial: Trial) -> State:
+    def with_trial(self, trial: Trial) -> BayesianPointState:
         if trial.seen:
             update = self.pos_fun(trial.threshold - self.x)
         else:
             update = 1 - self.pos_fun(trial.threshold - self.x)
-        return evolve(self, q_update=self.q_update * update)
+        return evolve(self, q_update=self.q_update * update, trials=self.trials + 1)
+
+    def with_offset(self, db) -> BayesianPointState:
+        dx = self.x[1] - self.x[0]
+        assert np.all(np.diff(self.x) == dx), "Only equal spacing is supported"
+        q0_new = shift(
+            q=self.q0,
+            offset=round(db / dx),
+            low_indices=(self.x < 1).sum()
+        )
+        return evolve(self, q0=q0_new)
+
+    @cached_property
+    def pretest(self):
+        return self.x[self.x > 1][np.argmax(self.q[self.x > 1])]
 
 
 class ZestPointState(BayesianPointState):
     @cached_property
     def estimate(self) -> float:
-        return self.mean
+        if np.all(self.q_update == self.q_update[0]):  # No update has been done yet
+            return self.pretest
+        else:
+            return self.mean
 
     @cached_property
     def next_trial(self) -> Trial:
