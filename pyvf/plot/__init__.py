@@ -1,10 +1,11 @@
-from pyvf.strategy import PATTERN_P24D2, XOD, YOD
+from pyvf.strategy import PATTERN_P24D2, PATTERN_P30D2, PATTERN_P10D2, XOD, YOD
 
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from matplotlib.ticker import ScalarFormatter, NullFormatter
 
 import numpy as np
+import pandas as pd
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -106,3 +107,65 @@ class VFPlotManager:
 
         self.axins = axins
         self.top_axin = axi
+
+
+# pretty_print_vf_positions = ((0, 1, 3),(1, 1, 4),(2, 1, 5),(3, 1, 6),(4, 2, 2),(5, 2, 3),(6, 2, 4),(7, 2, 5),(8, 2, 6),(9, 2, 7),(10, 3, 1),(11, 3, 2),(12, 3, 3),(13, 3, 4),(14, 3, 5),(15, 3, 6),(16, 3, 7),(17, 3, 8),(18, 4, 0),(19, 4, 1),(20, 4, 2),(21, 4, 3),(22, 4, 4),(23, 4, 5),(24, 4, 6),(25, 4, 7),(26, 4, 8),(27, 5, 0),(28, 5, 1),(29, 5, 2),(30, 5, 3),(31, 5, 4),(32, 5, 5),(33, 5, 6),(34, 5, 7),(35, 5, 8),(36, 6, 1),(37, 6, 2),(38, 6, 3),(39, 6, 4),(40, 6, 5),(41, 6, 6),(42, 6, 7),(43, 6, 8),(44, 7, 2),(45, 7, 3),(46, 7, 4),(47, 7, 5),(48, 7, 6),(49, 7, 7),(50, 8, 3),(51, 8, 4),(52, 8, 5),(53, 8, 6),)
+def get_pretty_print_grid(pattern=PATTERN_P24D2):
+    """
+    Convert a test pattern into the 2D grid format that pretty_print_vf wants
+    """
+    # Rudimentary method to detect spacing by using the first two points
+    dx = pattern[XOD][1] - pattern[XOD][0]
+    assert dx > 0, "Could not detect grid spacing"
+    # Assume that...
+    dy = dx
+
+    left = pattern[XOD].min()
+    top = pattern[YOD].max()
+    # Make grid symmetrical
+    left = -max(abs(left), abs(top))
+    top = -left
+
+    return [
+        (index, int((top - loc[1]) // dy), int((loc[0] - left) // dx))
+        for index, loc in enumerate(pattern)
+    ], left, top, dx, dy
+
+
+def pretty_print_vf(x, pattern=None, fmt=None, apply_style=False, outside_val=np.inf, vmin=0, vmax=28):
+    """
+    Requires pandas 1.3.0
+
+    Parameters
+    ------------
+    apply_style: Style the output dataframe for use in notebooks
+    fmt: Floating point format string
+    """
+    if len(x) == 52:
+        # Insert OD blind spot locations
+        x = np.insert(x, [25, 33], np.nan)
+    elif len(x) == 74:
+        # Insert OD blind spot locations
+        x = np.insert(x, [35, 45], np.nan)
+
+    if pattern is None:
+        for p in (PATTERN_P24D2, PATTERN_P30D2, PATTERN_P10D2):
+            if len(p) == len(x):
+                pattern = p
+    pretty_print_vf_positions, left, top, dx, dy = get_pretty_print_grid(pattern)
+
+    data = [[outside_val for _ in range(int(-left*2/dx+1))] for _ in range(int(top*2/dy+1))]  # TODO: Remove hard coded table size of 10 x 10
+    for idx, i, j in pretty_print_vf_positions:
+        if fmt is None:
+            data[i][j] = x[idx]
+        elif not apply_style:
+            data[i][j] = fmt % x[idx]
+    df = pd.DataFrame(data, columns=np.arange(left, -left+1, dx), index=np.arange(top, -top-1, -dy))
+    if not apply_style:
+        return df
+    else:
+        styled = df.style.background_gradient(axis=None, vmin=vmin, vmax=vmax, cmap='gray')
+        if fmt is None:
+            return styled
+        else:
+            return styled.format(lambda v: (fmt % v) if np.isfinite(v) else "", na_rep='?')
