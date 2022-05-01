@@ -188,7 +188,10 @@ class HFADCMParser:
     @property_with_default()
     def datetime(self):
         value = self.dataset.AcquisitionDateTime
-        return datetime.datetime.strptime(value, "%Y%m%d%H%M%S.%f")
+        if "." in value:
+            return datetime.datetime.strptime(value, "%Y%m%d%H%M%S.%f")
+        else: # Very rarely there is no .%f at the end
+            return datetime.datetime.strptime(value, "%Y%m%d%H%M%S")
 
     @property_with_default()
     def ght(self):
