@@ -1,5 +1,5 @@
 from __future__ import annotations
-from functools import cached_property
+from ..ext import cached_property
 
 from . import *
 from attrs import Factory, evolve

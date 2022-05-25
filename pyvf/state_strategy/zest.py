@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC
-from functools import cached_property
+from ..ext import cached_property
 from typing import Callable
 
 import attr

@@ -1,6 +1,6 @@
 import numpy as np
 from attrs import Factory, evolve
-from functools import cached_property
+from ..ext import cached_property
 from itertools import chain
 from . import *
 
