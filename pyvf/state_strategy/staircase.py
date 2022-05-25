@@ -1,4 +1,7 @@
 from __future__ import annotations
+
+from typing import Tuple
+
 from ..ext import cached_property
 
 from . import *
@@ -13,7 +16,7 @@ class StaircasePointState(PointState):
     last_response: Optional[bool] = None
     last_threshold: Optional[float] = None
     reversals: int = 0
-    steps: tuple[float] = (4, 2)
+    steps: Tuple[float] = (4, 2)
     # Ceiling and floor of the staircase procedure
     ceiling: float = 33
     floor: float = 0

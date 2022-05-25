@@ -1,3 +1,5 @@
+from typing import Tuple, Dict
+
 from . import *
 from .zest import *
 from ..strategy import PATTERN_P24D2, XOD, YOD, LOC
@@ -24,10 +26,10 @@ def get_flat_map(pattern_name):
 
 @attr.s(auto_attribs=True, slots=False, kw_only=True, frozen=True)
 class QuadrantFieldState(State):
-    nodes: tuple[StateNode]  # PointStates
-    quadrant_map: dict[int, list[int]]
-    sequential_indices: tuple[int] = Factory(lambda self: tuple(k for k, v in self.quadrant_map.items() if v), takes_self=True)
-    eager_indices: tuple[int] = Factory(lambda self: tuple(k for k, v in self.quadrant_map.items() if not v), takes_self=True)
+    nodes: Tuple[StateNode]  # PointStates
+    quadrant_map: Dict[int, List[int]]
+    sequential_indices: Tuple[int] = Factory(lambda self: tuple(k for k, v in self.quadrant_map.items() if v), takes_self=True)
+    eager_indices: Tuple[int] = Factory(lambda self: tuple(k for k, v in self.quadrant_map.items() if not v), takes_self=True)
     rng: np.random.Generator = Factory(lambda: np.random.default_rng(0))
 
     @property
@@ -81,7 +83,7 @@ class QuadrantFieldState(State):
         return all(n.instance.terminated for n in self.nodes)
 
     @staticmethod
-    def _update_sequential(sequential_indices: list[int], nodes: list[StateNode], quadrant_map: dict[int, list[int]]) -> (list[int], list[StateNode]):
+    def _update_sequential(sequential_indices: List[int], nodes: List[StateNode], quadrant_map: Dict[int, List[int]]) -> (List[int], List[StateNode]):
         if all(nodes[point_index].instance.terminated for point_index in sequential_indices):
             # Update them
             ret = []

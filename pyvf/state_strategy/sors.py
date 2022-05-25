@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import numpy as np
 from attrs import Factory, evolve
 from ..ext import cached_property
@@ -40,10 +42,10 @@ def train_sors(database, print_progress=False):
 
 @attr.s(auto_attribs=True, slots=False, kw_only=True, frozen=True)
 class GenericSorsFieldState(State):
-    nodes: tuple[StateNode]  # PointStates
-    batches: tuple[tuple[int]]
+    nodes: Tuple[StateNode]  # PointStates
+    batches: Tuple[Tuple[int]]
     curr_batch_index: int = 0
-    models: tuple  # Model should define a predict(X) method that maps partial measurements to full field
+    models: Tuple  # Model should define a predict(X) method that maps partial measurements to full field
     rng: np.random.Generator = Factory(lambda: np.random.default_rng(0))
 
     @property

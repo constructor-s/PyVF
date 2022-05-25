@@ -13,7 +13,7 @@ class FestFieldState(State):
         type=np.ndarray,
         converter=lambda p: p * 1.0 / np.sum(p)
     )
-    nodes = attr.ib(type=tuple[StateNode])
+    nodes = attr.ib(type=Tuple[StateNode])
     seeding_terminated = attr.ib(
         type=bool,
         default=False

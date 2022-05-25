@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Optional, Any, Union
+from typing import Optional, Any, Union, Tuple, List
 
 import attr
 
@@ -57,7 +57,7 @@ class State(ABC):
 
     @property
     @abstractmethod
-    def estimate(self) -> Union[float, tuple[float]]:
+    def estimate(self) -> Union[float, Tuple[float]]:
         """
 
         Returns
@@ -143,7 +143,7 @@ class StateNode:
         return next_node
 
     @property
-    def previous_edges(self) -> tuple[TrialEdge]:
+    def previous_edges(self) -> Tuple[TrialEdge]:
         """
 
         Returns
@@ -153,7 +153,7 @@ class StateNode:
         return tuple(self._previous_edges)
 
     @property
-    def _previous_edges(self) -> list[TrialEdge]:
+    def _previous_edges(self) -> List[TrialEdge]:
         if self.prev is None:
             return []
         else:
@@ -162,7 +162,7 @@ class StateNode:
             return ret
 
     @property
-    def previous_states(self) -> tuple[StateNode]:
+    def previous_states(self) -> Tuple[StateNode]:
         """
 
         Returns
@@ -172,7 +172,7 @@ class StateNode:
         return tuple(self._previous_states)
 
     @property
-    def _previous_states(self) -> list[StateNode]:
+    def _previous_states(self) -> List[StateNode]:
         if self.prev is None or self.prev.prev is None:
             return [self]
         else:
