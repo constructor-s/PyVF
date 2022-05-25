@@ -35,7 +35,7 @@ def train_sors(database, print_progress=False):
         Omega_star_S.append(l_star_k)
         D_star.append(D_k[l_star_k])
         if print_progress:
-            print(f"{len(Omega_star_S) = :2d}, {error[l_star_k] = :6.1f}: {Omega_star_S[-1] = }")
+            print(f"len(Omega_star_S) = {len(Omega_star_S):2d}, error[l_star_k] = {error[l_star_k]:6.1f}: Omega_star_S[-1] = {Omega_star_S[-1]}")
 
     return Omega_star_S, D_star
 
