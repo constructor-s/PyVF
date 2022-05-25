@@ -39,11 +39,11 @@ def train_sors(database, print_progress=False):
 
 
 @attr.s(auto_attribs=True, slots=False, kw_only=True, frozen=True)
-class SorsFieldState(State):
+class GenericSorsFieldState(State):
     nodes: tuple[StateNode]  # PointStates
     batches: tuple[tuple[int]]
     curr_batch_index: int = 0
-    weights: tuple[np.ndarray]
+    models: tuple  # Model should define a predict(X) method that maps partial measurements to full field
     rng: np.random.Generator = Factory(lambda: np.random.default_rng(0))
 
     @property
@@ -80,11 +80,11 @@ class SorsFieldState(State):
         batch = self.batches[self.curr_batch_index]
         if batch and all(nodes[i].instance.terminated for i in batch):
             # Seed the points
-            completed_indices = (chain.from_iterable(self.batches[:self.curr_batch_index+1]))
+            completed_indices = chain.from_iterable(self.batches[:self.curr_batch_index+1])  # Flatten up to current finished batch
             completed_estimates = [self.nodes[i].instance.estimate for i in completed_indices]
             n_completed = len(completed_estimates)
-            weight = self.weights[n_completed-1]
-            reconstruction = weight @ completed_estimates
+            model = self.models[n_completed-1]
+            reconstruction = model.predict(completed_estimates)
             for i, (n, r) in enumerate(zip(nodes, reconstruction)):
                 if i < n_completed:
                     pass
