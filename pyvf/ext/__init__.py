@@ -72,12 +72,7 @@ either expressed or implied, of the FreeBSD Project.
 """
 
 import numpy as np
-try:
-    from functools import cached_property
-except ImportError:  # cached_property only available since 3.8
-    # Reference: https://stackoverflow.com/a/16099881/6610243
-    import functools
-    cached_property = lambda f: property(functools.lru_cache()(f))
+from .backports.cached_property import cached_property
 
 
 def array_lru_cache():

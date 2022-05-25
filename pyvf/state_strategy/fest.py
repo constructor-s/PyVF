@@ -8,6 +8,10 @@ from .staircase import *
 
 @attr.s(auto_attribs=False, slots=False, kw_only=True, frozen=True)
 class FestFieldState(State):
+    """
+    This class is hash by id (eq=False) because np.ndarray is not hashable and needs to use cached_property
+    https://www.attrs.org/en/stable/hashing.html
+    """
     database = attr.ib(type=np.ndarray)
     database_p = attr.ib(
         type=np.ndarray,

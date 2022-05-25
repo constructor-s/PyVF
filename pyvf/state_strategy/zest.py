@@ -31,6 +31,10 @@ def shift(q, offset, low_indices=1, eps=EPS):
 
 @attr.s(auto_attribs=True, slots=False, kw_only=True, frozen=True)
 class BayesianPointState(PointState, ABC):
+    """
+    This class is hash by id (eq=False) because np.ndarray is not hashable and needs to use cached_property
+    https://www.attrs.org/en/stable/hashing.html
+    """
     x: np.ndarray
     q0: np.ndarray
     pos_fun: Callable[[np.ndarray], float] = lambda x: pos_ramp(x, center=0, yl=0.95, yr=0.05, width=4.0)
