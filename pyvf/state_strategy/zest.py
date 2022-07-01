@@ -1,7 +1,7 @@
 from __future__ import annotations
 from abc import ABC
 from ..ext import cached_property
-from typing import Callable
+from typing import Callable, Union
 
 import attr
 import numpy as np
@@ -39,7 +39,7 @@ class BayesianPointState(PointState, ABC):
     q0: np.ndarray
     pos_fun: Callable[[np.ndarray], float] = lambda x: pos_ramp(x, center=0, yl=0.95, yr=0.05, width=4.0)
     q_update: np.ndarray = Factory(lambda self: np.ones_like(self.x, dtype=np.float64), takes_self=True)
-    terminate_std: float = 1.5
+    terminate_std: Union[float, Callable[[int], float]] = 1.5
     trials: int = 0
 
     @cached_property
@@ -52,6 +52,14 @@ class BayesianPointState(PointState, ABC):
         return self.x @ self.q
 
     @cached_property
+    def median(self) -> float:
+        return np.interp(0.5, self.q.cumsum(), self.x)
+
+    @cached_property
+    def mode(self):
+        return self.x[self.q.argmax()]
+
+    @cached_property
     def var(self) -> float:
         mean2 = self.mean ** 2
         ex2 = (self.x ** 2) @ self.q
@@ -59,7 +67,11 @@ class BayesianPointState(PointState, ABC):
 
     @cached_property
     def terminated(self) -> bool:
-        return self.trials > 0 and self.var < self.terminate_std ** 2
+        if callable(self.terminate_std):
+            term_std = self.terminate_std(self.trials)
+        else:
+            term_std = self.terminate_std
+        return self.trials > 0 and self.var < term_std ** 2
 
     def with_trial(self, trial: Trial) -> BayesianPointState:
         if trial.seen:
