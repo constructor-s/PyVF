@@ -92,7 +92,7 @@ class BayesianPointState(PointState, ABC):
 
     @cached_property
     def pretest(self):
-        return self.x[self.x > 1][np.argmax(self.q[self.x > 1])]
+        return self.x[self.x > 1][np.argmax(self.q0[self.x > 1])]
 
 
 class ZestPointState(BayesianPointState):
