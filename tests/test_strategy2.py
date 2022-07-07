@@ -196,3 +196,13 @@ class TestStrategy(TestCase):
         self.assertListEqual(shift(x, -1).tolist(), [10.0, 3.0, 3.0, 4.0, 5.0, EPS])
         self.assertListEqual(shift(x, -3).tolist(), [10.0, 10.0, 5.0, EPS, EPS, EPS])
         self.assertListEqual(shift(x, -3, low_indices=2).tolist(), [10.0, 1.0, 14.0, EPS, EPS, EPS])
+
+    def test_staircase(self):
+        s = StaircasePointState(point=None, pretest=30, steps=(3, ))
+        print(s)
+        while not s.terminated:
+            trial = s.next_trial
+            trial = evolve(trial, seen=trial.threshold < -1)
+            print(trial)
+            s = s.with_trial(trial)
+            print(s)

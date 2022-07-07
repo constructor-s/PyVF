@@ -21,6 +21,7 @@ class StaircasePointState(PointState):
     ceiling: float = 33
     floor: float = 0
     last_seen_threshold: float = Factory(lambda self: self.floor - 1, takes_self=True)
+    last_reversal_threshold: float = Factory(lambda self: self.floor - 1, takes_self=True) # mean of the reversal trials, last seen if all seen, -1 if all not seen
 
     @property
     def estimate(self) -> float:
@@ -49,20 +50,29 @@ class StaircasePointState(PointState):
             return Trial(point=self.point, threshold=np.clip(self.last_threshold - self.steps[self.reversals], self.floor, self.ceiling))
 
     def with_trial(self, trial: Trial) -> StaircasePointState:
+        last_reversal_threshold = self.last_reversal_threshold
+
         if self.last_response is None:
             reversals = 0
         else:
             if self.last_response == False and trial.seen == True and trial.threshold <= self.last_threshold: # brighter seen
                 reversals = self.reversals + 1
+                last_reversal_threshold = 0.5 * (trial.threshold + self.last_threshold)
             elif self.last_response == True and trial.seen == False and trial.threshold >= self.last_threshold: # dimmer not seen
                 reversals = self.reversals + 1
+                last_reversal_threshold = 0.5 * (trial.threshold + self.last_threshold)
             else:
                 reversals = self.reversals
+
+        if reversals == 0 and trial.seen == True:
+            last_reversal_threshold = trial.threshold
+
         return evolve(
             self,
             last_response=trial.seen,
             last_threshold=trial.threshold,
             last_seen_threshold=trial.threshold if trial.seen else self.last_seen_threshold,
+            last_reversal_threshold=last_reversal_threshold,
             reversals=reversals,
         )
 
