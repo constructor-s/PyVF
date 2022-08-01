@@ -24,6 +24,7 @@ from unittest import TestCase
 from pyvf.state_strategy import *
 from pyvf.state_strategy.fest import FestFieldState
 from pyvf.state_strategy.quadrant import *
+from pyvf.state_strategy.sors import *
 from pyvf.state_strategy.staircase import *
 from pyvf.state_strategy.zest import *
 import attrs.exceptions
@@ -206,3 +207,77 @@ class TestStrategy(TestCase):
             print(trial)
             s = s.with_trial(trial)
             print(s)
+
+    def test_sors(self):
+        from collections import defaultdict
+        class QuadrantModel:
+            map = {
+                (0, 12): (0, 1, 4, 5, 6, 10, 11, 13, 18, 19, 20, 21, 22),  # 12
+                (1, 15): (2, 3, 7, 8, 9, 14, 16, 17, 23, 24, 26),  # 15
+                (2, 38): (27, 28, 29, 30, 31, 36, 37, 39, 44, 45, 46, 50, 51),  # 38
+                (3, 41): (32, 33, 35, 40, 42, 43, 47, 48, 49, 52, 53)  # 41
+            }
+
+            def __init__(self, hill):
+                # hill = Model(eval_pattern=PATTERN_P24D2, age=50)._get_vf_stats_mean(age=50)
+                self.hill = hill
+
+            def fit(self, X, y):
+                return self
+
+            def predict(self, X):
+                X = np.atleast_2d(np.asarray(X))
+                y = np.tile(self.hill, (X.shape[0], 1))
+                for (i, k), v in QuadrantModel.map.items():
+                    if i >= X.shape[1]:
+                        break
+                    offset = X[:, i] - self.hill[:, k]
+                    y[:, v] += offset.reshape(-1, 1)
+                    y[:, k] += offset
+                y[:, 25] = 0
+                y[:, 34] = 0
+                return y.ravel()
+
+        field_state = GenericSorsFieldState(
+            nodes=[
+                StateNode(instance=StaircasePointState(
+                        pretest=np.nan_to_num(pretest),
+                        point=Point(index=i, x=pt[0], y=pt[1])
+                    )
+                ) for i, (pretest, pt) in enumerate(zip(np.full(54, 30.0), PATTERN_P24D2))
+            ],
+            batches=((12,),(15,),(38,),(41,),(27,),(2,),(31,),(10,),(44,),(7,),(29,),(6,),(23,),(48,),(53,),(32,),(33,),(43,),(5,),(4,),(30,),(46,),(47,),(9,),(39,),(0,),(8,),(16,),(11,),(20,),(37,),(24,),(28,),(45,),(52,),(21,),(17,),(35,),(34,),(25,),(13,),(49,),(1,),(19,),(42,),(51,),(14,),(40,),(22,),(3,),(50,),(18,),(36,),(26,)),
+            models=defaultdict(lambda : QuadrantModel(hill=np.full((1, 54), 30.0)))
+        )
+        for i in field_state.nodes:
+            print(i.instance)
+
+        self.run_simulation(field_state, true_threshold=np.full(54, 20.0))
+
+    @staticmethod
+    def run_simulation(state, true_threshold, max_trials=600):
+        field_state_node = StateNode(instance=state)
+
+        trial = field_state_node.instance.next_trial
+        i = 0
+        while trial is not None:
+            seen = np.random.default_rng().uniform() < pos_ramp(trial.threshold, true_threshold[trial.point.index],
+                                                                yl=0.999, yr=0.001, width=0.01)
+            print(trial)
+            trial = evolve(trial, seen=seen)
+            print(trial)
+            field_state_node = field_state_node.add_trial(trial)
+            i += 1
+            if i > max_trials:
+                print(f"Max trials of {max_trials} reached")
+                break
+            # print(i, trial, np.around(field_state_node.instance.estimate))
+            # print(field_state_node.instance.database_p)
+            # print(i, field_state_node.instance.seeding_terminated, np.around(field_state_node.instance.estimate, 1).tolist())
+            trial = field_state_node.instance.next_trial
+
+        return field_state_node
+
+
+
+

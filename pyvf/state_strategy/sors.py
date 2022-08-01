@@ -88,9 +88,7 @@ class GenericSorsFieldState(State):
             model = self.models[n_completed-1]
             reconstruction = model.predict(completed_estimates)
             for i, (n, r) in enumerate(zip(nodes, reconstruction)):
-                if i < n_completed:
-                    pass
-                else:
+                if i not in completed_indices:  # Ignore indices that are already finished
                     nodes[i] = n.add_state(
                         state=n.instance.with_offset(r - n.instance.pretest),
                         trial=None
