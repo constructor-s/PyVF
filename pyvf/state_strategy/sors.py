@@ -82,7 +82,7 @@ class GenericSorsFieldState(State):
         batch = self.batches[self.curr_batch_index]
         if batch and all(nodes[i].instance.terminated for i in batch):
             # Seed the points
-            completed_indices = chain.from_iterable(self.batches[:self.curr_batch_index+1])  # Flatten up to current finished batch
+            completed_indices = tuple(chain.from_iterable(self.batches[:self.curr_batch_index+1]))  # Flatten up to current finished batch
             completed_estimates = [self.nodes[i].instance.estimate for i in completed_indices]
             n_completed = len(completed_estimates)
             model = self.models[n_completed-1]
