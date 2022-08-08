@@ -11,8 +11,8 @@ import numpy as np
 
 @attr.s(auto_attribs=True, slots=False, kw_only=True, frozen=True)
 class StaircasePointState(PointState):
-    pretest: float
-    starting: float = Factory(lambda self: self.pretest, takes_self=True)
+    pretest: float # This is not affected by seeding offset
+    starting: float = Factory(lambda self: self.pretest, takes_self=True) # This is by default the same as pretest, and is affected by the seeding offset
     last_response: Optional[bool] = None
     last_threshold: Optional[float] = None
     reversals: int = 0
@@ -22,6 +22,10 @@ class StaircasePointState(PointState):
     floor: float = 0
     last_seen_threshold: float = Factory(lambda self: self.floor - 1, takes_self=True)
     last_reversal_threshold: float = Factory(lambda self: self.floor - 1, takes_self=True) # mean of the reversal trials, last seen if all seen, -1 if all not seen
+    retest: bool = False  # whether to initiate another set of staircase after the current set...
+    retest_range: Tuple[float] = Factory(lambda self: (self.starting - 4, self.starting + 4), takes_self=True)  #... if the determined threshold is outside thr range here
+    prev_last_seen_threshold: float = None  # store the previous set of staircase's result here
+    prev_last_reversal_threshold: float = None
 
     @property
     def estimate(self) -> float:
@@ -31,7 +35,11 @@ class StaircasePointState(PointState):
         elif not self.terminated:
             return self.last_threshold
         else:
-            return self.last_seen_threshold
+            if self.prev_last_seen_threshold is None:
+                return self.last_seen_threshold
+            else:
+                # According to Turpin 2003, return the mean of the first and second staircase
+                return 0.5 * (self.last_seen_threshold + self.prev_last_seen_threshold)
 
     @cached_property
     def next_trial(self) -> Optional[Trial]:
@@ -67,7 +75,7 @@ class StaircasePointState(PointState):
         if reversals == 0 and trial.seen == True:
             last_reversal_threshold = trial.threshold
 
-        return evolve(
+        state = evolve(
             self,
             last_response=trial.seen,
             last_threshold=trial.threshold,
@@ -75,6 +83,29 @@ class StaircasePointState(PointState):
             last_reversal_threshold=last_reversal_threshold,
             reversals=reversals,
         )
+
+        if state.retest and state.terminated and (
+                state.estimate < state.retest_range[0] or state.estimate > state.retest_range[1]):
+            # Retest another staircase
+            return evolve(
+                state,
+                # same pretest
+                starting=state.estimate, # start at the current staircase's final estimate
+                last_response=None,
+                last_threshold=None,
+                reversals=0,
+                # same steps
+                # same ceiling
+                # same floor
+                last_seen_threshold=state.floor-1,
+                last_reversal_threshold=state.floor - 1,
+                retest=False,  # Do not do more retesting
+                retest_range=(state.starting - 4, state.starting + 4),
+                prev_last_seen_threshold=state.last_seen_threshold,
+                prev_last_reversal_threshold=state.last_reversal_threshold
+            )
+        else:
+            return state
 
     def with_offset(self, db) -> StaircasePointState:
         return evolve(

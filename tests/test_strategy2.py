@@ -199,14 +199,16 @@ class TestStrategy(TestCase):
         self.assertListEqual(shift(x, -3, low_indices=2).tolist(), [10.0, 1.0, 14.0, EPS, EPS, EPS])
 
     def test_staircase(self):
-        s = StaircasePointState(point=None, pretest=30, steps=(3, ))
+        rng = np.random.default_rng(2)
+        s = StaircasePointState(point=None, pretest=30, steps=(4, 2, 1), retest=True)
         print(s)
         while not s.terminated:
             trial = s.next_trial
-            trial = evolve(trial, seen=trial.threshold < -1)
+            trial = evolve(trial, seen=trial.threshold < 25.1 if rng.random() < 0.8 else rng.random() < 0.5)
             print(trial)
             s = s.with_trial(trial)
             print(s)
+        print(f"s.estimate = {s.estimate}")
 
     def test_sors(self):
         from collections import defaultdict
