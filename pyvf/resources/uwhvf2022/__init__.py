@@ -69,6 +69,18 @@ with importlib.resources.open_binary(__name__, VF_DATA_FILENAME) as f:
     VF_THRESHOLD = VF_THRESHOLD.values.astype(np.float32)
     VF_THRESHOLD.flags.writeable = False
 
+    VF_TD = VF_DATA[[f"TD_{i}" for i in range(1, 55)]]
+    VF_TD = VF_TD.values.astype(np.float32)
+    VF_TD.flags.writeable = False
+
+    VF_PD = VF_DATA[[f"PD_{i}" for i in range(1, 55)]]
+    VF_PD = VF_PD.values.astype(np.float32)
+    VF_PD.flags.writeable = False
+
     VF_THRESHOLD_SITES = VF_DATA["PatID"] * 2 - 1 + (VF_DATA["Eye"] == "Left")
     VF_THRESHOLD_SITES = VF_THRESHOLD_SITES.values.astype(np.int32)
     VF_THRESHOLD_SITES.flags.writeable = False
+
+    VF_THRESHOLD_INFO = VF_DATA.loc[:, :"GH"]
+    VF_THRESHOLD_INFO["STUDY_SITE_ID"] = VF_THRESHOLD_SITES
+
