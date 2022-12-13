@@ -20,7 +20,7 @@ class Trial:
     seen: bool = None  # None indicates a trial that has not been presented yet
 
 
-@attr.s(auto_attribs=True, slots=False, kw_only=True, frozen=True)
+@attr.s(auto_attribs=True, slots=False, kw_only=True, frozen=False)  # if frozen=True then subclasses are forced to be frozen
 class State(ABC):
     @property
     @abstractmethod
@@ -72,7 +72,7 @@ class State(ABC):
         pass
 
 
-@attr.s(auto_attribs=True, slots=False, kw_only=True, frozen=True)
+@attr.s(auto_attribs=True, slots=False, kw_only=True, frozen=False)  # if frozen=True then subclasses are forced to be frozen
 class PointState(State, ABC):
     point: Point
 
