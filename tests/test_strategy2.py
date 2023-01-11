@@ -119,18 +119,29 @@ class TestStrategy(TestCase):
             def estimate(self):
                 return 20
 
+            def with_offset(self, db):
+                return evolve(self, starting=self.pretest + db)
+
         class MockNotTerminatedState(MockTerminatedState):
             @property
             def terminated(self) -> bool:
                 return False
 
-        print(
+        nodes = [
+            StateNode(instance=MockTerminatedState()),
+            StateNode(instance=MockNotTerminatedState()),
+            StateNode(instance=MockNotTerminatedState())
+        ]
+        self.assertListEqual([n.instance.starting for n in nodes], [30, 30, 30])
+        eager_indices, nodes = (
             QuadrantFieldState._update_eager(
-                (0, 2),
-                [StateNode(instance=MockTerminatedState()), StateNode(instance=MockNotTerminatedState()), StateNode(instance=MockNotTerminatedState())],
-                {0: [1]}
+                eager_indices=(0, 2),
+                nodes=nodes,
+                quadrant_map={0: [1]}
             )
         )
+        self.assertSetEqual(set(eager_indices), set((1, 2)))  # 0 has terminated, so 1 can be evaluated now
+        self.assertListEqual([n.instance.starting for n in nodes], [30, 20, 30])
 
     def test_quadrant_field_state(self):
         def run():
@@ -163,6 +174,11 @@ class TestStrategy(TestCase):
             # print(np.around(field_state_node.instance.estimate))
             return field_state_node
 
+        expected = np.full(54, fill_value=30)
+        expected[34] = 0
+        result = run()
+        self.assertTrue(np.allclose(result.instance.estimate, expected, atol=2))
+        """
         from line_profiler.line_profiler import LineProfiler
         profiler = LineProfiler()
         profiler.add_function(run)
@@ -178,6 +194,7 @@ class TestStrategy(TestCase):
         # profiler.add_function(StaircasePointState.terminated.func)
         profiler(lambda : [run() for _ in range(1)])()
         print(profiler.print_stats())
+        """
 
     def test_var(self):
         self.assertAlmostEqual(FestFieldState.var(
@@ -199,16 +216,29 @@ class TestStrategy(TestCase):
         self.assertListEqual(shift(x, -3, low_indices=2).tolist(), [10.0, 1.0, 14.0, EPS, EPS, EPS])
 
     def test_staircase(self):
-        rng = np.random.default_rng(2)
-        s = StaircasePointState(point=None, pretest=30, steps=(4, 2, 1), retest=True)
-        print(s)
-        while not s.terminated:
-            trial = s.next_trial
-            trial = evolve(trial, seen=trial.threshold < 25.1 if rng.random() < 0.8 else rng.random() < 0.5)
-            print(trial)
-            s = s.with_trial(trial)
-            print(s)
-        print(f"s.estimate = {s.estimate}")
+        for seed in range(2):
+            rng = np.random.default_rng(seed)
+            s = StaircasePointState(point=None, pretest=30, steps=(4, 2, 1), retest=True)
+            trials_history = []
+            # print(s)
+            while not s.terminated:
+                trial = s.next_trial
+                trial = evolve(trial, seen=trial.threshold < 25.1 if rng.random() < 0.8 else rng.random() < 0.5)
+                trials_history.append(trial)
+                # print(trial)
+                s = s.with_trial(trial)
+                # print(s)
+
+            # print(trials_history)
+            # print(f"s.estimate = {s.estimate}")
+            if seed == 0:
+                self.assertListEqual([30, 26, 22, 24, 26, 25, 25, 29, 27, 25, 26, 27], [t.threshold for t in trials_history])
+                self.assertListEqual([ 0,  0,  1,  1,  0,  1,  1,  0,  0,  1,  1,  0], [t.seen for t in trials_history])
+                self.assertEqual(s.estimate, 0.5 * (25 + 26))  # Threshold is the last seen trial, return average of first and second repetation
+            elif seed == 1:
+                self.assertListEqual([30, 26, 28, 30, 29], [t.threshold for t in trials_history])
+                self.assertListEqual([ 0,  1,  1,  0,  1], [t.seen for t in trials_history])
+                self.assertEqual(s.estimate, 29)  # Threshold is the last seen trial
 
     def test_sors(self):
         from collections import defaultdict
@@ -251,23 +281,41 @@ class TestStrategy(TestCase):
             batches=((12,),(15,),(38,),(41,),(27,),(2,),(31,),(10,),(44,),(7,),(29,),(6,),(23,),(48,),(53,),(32,),(33,),(43,),(5,),(4,),(30,),(46,),(47,),(9,),(39,),(0,),(8,),(16,),(11,),(20,),(37,),(24,),(28,),(45,),(52,),(21,),(17,),(35,),(34,),(25,),(13,),(49,),(1,),(19,),(42,),(51,),(14,),(40,),(22,),(3,),(50,),(18,),(36,),(26,)),
             models=defaultdict(lambda : QuadrantModel(hill=np.full((1, 54), 30.0)))
         )
-        for i in field_state.nodes:
-            print(i.instance)
+        # for i in field_state.nodes:
+        #     print(i.instance)
 
-        self.run_simulation(field_state, true_threshold=np.full(54, 20.0))
+        final_node = self.run_simulation(field_state, true_threshold=np.full(54, 20.0))
+        # Get to first node
+        node = final_node
+        while node.prev and node.prev.prev:
+            node = node.prev.prev
+        # Step through linked list of nodes
+        for i in range(50):
+            starting = np.array([n.instance.starting for n in node.instance.nodes])
+            estimate = node.instance.estimate
+            if i == 0:
+                self.assertTrue(np.allclose(30, starting))
+            else:
+                for (_, center_index), children_indices in QuadrantModel.map.items():
+                    if node.instance.nodes[center_index].instance.terminated:
+                        center_estimate = estimate[center_index]
+                        # print(center_index, center_estimate)
+                        self.assertTrue(np.allclose(starting[list(children_indices)], center_estimate),
+                                        msg=f"{i = }, {center_index = }, {estimate[center_index] = }, {starting[list(children_indices)] = }")
+            node = node.next.next
 
     @staticmethod
-    def run_simulation(state, true_threshold, max_trials=600):
+    def run_simulation(state, true_threshold, max_trials=600, seed=0):
         field_state_node = StateNode(instance=state)
 
         trial = field_state_node.instance.next_trial
         i = 0
         while trial is not None:
-            seen = np.random.default_rng().uniform() < pos_ramp(trial.threshold, true_threshold[trial.point.index],
+            seen = np.random.RandomState(seed).uniform() < pos_ramp(trial.threshold, true_threshold[trial.point.index],
                                                                 yl=0.999, yr=0.001, width=0.01)
-            print(trial)
+            # print(trial)
             trial = evolve(trial, seen=seen)
-            print(trial)
+            # print(trial)
             field_state_node = field_state_node.add_trial(trial)
             i += 1
             if i > max_trials:

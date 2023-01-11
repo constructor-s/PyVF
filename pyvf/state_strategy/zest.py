@@ -41,6 +41,7 @@ class BayesianPointState(PointState, ABC):
     q_update: np.ndarray = Factory(lambda self: np.ones_like(self.x, dtype=np.float64), takes_self=True)
     terminate_std: Union[float, Callable[[int], float]] = 1.5
     trials: int = 0
+    low_indices_db: float = 1.0
 
     @cached_property
     def q(self) -> np.ndarray:
@@ -86,13 +87,13 @@ class BayesianPointState(PointState, ABC):
         q0_new = shift(
             q=self.q0,
             offset=round(db / dx),
-            low_indices=(self.x < 1).sum()
+            low_indices=(self.x < self.low_indices_db).sum()
         )
         return evolve(self, q0=q0_new)
 
     @cached_property
     def pretest(self):
-        return self.x[self.x > 1][np.argmax(self.q0[self.x > 1])]
+        return self.x[self.x > self.low_indices_db][np.argmax(self.q0[self.x > self.low_indices_db])]
 
 
 class ZestPointState(BayesianPointState):
