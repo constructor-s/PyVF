@@ -208,12 +208,14 @@ class TestStrategy(TestCase):
 
     def test_shift(self):
         x = [10, 1, 2, 3, 4, 5]
-        self.assertListEqual(shift(x, 0).tolist(), [10, 1, 2, 3, 4, 5])
-        self.assertListEqual(shift(x, 1).tolist(), [10.0, EPS, 1.0, 2.0, 3.0, 9.0])
-        self.assertListEqual(shift(x, 3).tolist(), [10.0, EPS, EPS, EPS, 1.0, 14.0])
-        self.assertListEqual(shift(x, -1).tolist(), [10.0, 3.0, 3.0, 4.0, 5.0, EPS])
-        self.assertListEqual(shift(x, -3).tolist(), [10.0, 10.0, 5.0, EPS, EPS, EPS])
+        self.assertListEqual(shift(x, 0, low_indices=1).tolist(), [10, 1, 2, 3, 4, 5])
+        self.assertListEqual(shift(x, 1, low_indices=1).tolist(), [10.0, EPS, 1.0, 2.0, 3.0, 9.0])
+        self.assertListEqual(shift(x, 3, low_indices=1).tolist(), [10.0, EPS, EPS, EPS, 1.0, 14.0])
+        self.assertListEqual(shift(x, -1, low_indices=1).tolist(), [10.0, 3.0, 3.0, 4.0, 5.0, EPS])
+        self.assertListEqual(shift(x, -3, low_indices=1).tolist(), [10.0, 10.0, 5.0, EPS, EPS, EPS])
         self.assertListEqual(shift(x, -3, low_indices=2).tolist(), [10.0, 1.0, 14.0, EPS, EPS, EPS])
+        self.assertListEqual(shift(x, -3, low_indices=0).tolist(), [16.0, 4.0, 5.0, EPS, EPS, EPS])
+        self.assertListEqual(shift(x, +3, low_indices=0).tolist(), [EPS, EPS, EPS, 10.0, 1.0, 14.0])
 
     def test_staircase(self):
         for seed in range(2):

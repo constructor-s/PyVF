@@ -13,7 +13,7 @@ from ..stats.pos import pos_ramp
 EPS = 1e-3
 
 
-def shift(q, offset, low_indices=1, eps=EPS):
+def shift(q, offset, low_indices, eps=EPS):
     if offset == 0:
         return np.array(q)
 
