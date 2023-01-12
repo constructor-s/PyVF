@@ -72,6 +72,8 @@ class TestStrategy(TestCase):
             pos_fun=pos
         )
         self.assertEqual(point.mean, 27)
+        self.assertEqual(point.mode, 30)
+        self.assertEqual(point.pretest, 30)
         self.assertEqual(point.estimate, 30)
         point = point.with_trial(Trial(point=point.point, threshold=20, seen=True))
         self.assertEqual(point.estimate, 30 * 0.9 * 0.95 / (0.9 * 0.95 + 0.1 * 0.05))
@@ -97,6 +99,37 @@ class TestStrategy(TestCase):
         self.assertEqual(point.with_offset(-0.9).estimate, 25)
         self.assertEqual(point.with_offset(-2).estimate, 23)
         self.assertEqual(point.with_offset(+3.1).estimate, 29)
+
+    def test_new_zest_with_prior(self):
+        x = np.array([-1, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33])
+        normal = np.array([0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 2, 1, 1])
+        abnormal = np.array([8, 4, 2, 2, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+
+        prior0 = BayesianMixedPrior(
+            x=x,
+            q0_normal=normal,
+            q0_abnormal=abnormal,
+            weight_normal=0.75,
+            weight_abnormal=0.25,
+            eps=0
+        )
+        self.assertAlmostEqual(prior0.q0.sum(), 1.0)
+        self.assertEqual(prior0.pretest, 27)
+
+        prior = prior0.with_offset(-4)
+        self.assertAlmostEqual(prior.q0.sum(), 1.0)
+        self.assertEqual(prior.pretest, 23)
+        # point = ZestPointState(
+        #     point=Point(index=0, x=0, y=0),
+        #     prior=BayesianPrior(
+        #         x=x,
+        #         q0=normal,
+        #         low_indices_db=1
+        #     )
+        # )
+
+        prior = prior0.with_offset(+12).with_offset(-12)
+        self.assertListEqual(prior0.q0.tolist(), prior.q0.tolist())
 
     def test_growth(self):
         @attr.s
@@ -207,15 +240,13 @@ class TestStrategy(TestCase):
         ), 0.25 * 0.75)
 
     def test_shift(self):
-        x = [10, 1, 2, 3, 4, 5]
-        self.assertListEqual(shift(x, 0, low_indices=1).tolist(), [10, 1, 2, 3, 4, 5])
-        self.assertListEqual(shift(x, 1, low_indices=1).tolist(), [10.0, EPS, 1.0, 2.0, 3.0, 9.0])
-        self.assertListEqual(shift(x, 3, low_indices=1).tolist(), [10.0, EPS, EPS, EPS, 1.0, 14.0])
-        self.assertListEqual(shift(x, -1, low_indices=1).tolist(), [10.0, 3.0, 3.0, 4.0, 5.0, EPS])
-        self.assertListEqual(shift(x, -3, low_indices=1).tolist(), [10.0, 10.0, 5.0, EPS, EPS, EPS])
-        self.assertListEqual(shift(x, -3, low_indices=2).tolist(), [10.0, 1.0, 14.0, EPS, EPS, EPS])
-        self.assertListEqual(shift(x, -3, low_indices=0).tolist(), [16.0, 4.0, 5.0, EPS, EPS, EPS])
-        self.assertListEqual(shift(x, +3, low_indices=0).tolist(), [EPS, EPS, EPS, 10.0, 1.0, 14.0])
+        x = np.array([10.0, 1, 2, 3, 4, 5])
+        EPS = 1e-5
+        self.assertListEqual(shift(x, 0, fill_value=EPS).tolist(), [10, 1, 2, 3, 4, 5])
+        self.assertListEqual(shift(x, 1, fill_value=EPS).tolist(), [EPS, 10.0, 1.0, 2.0, 3.0, 9.0])
+        self.assertListEqual(shift(x, 3, fill_value=EPS).tolist(), [EPS, EPS, EPS, 10.0, 1.0, 14.0])
+        self.assertListEqual(shift(x, -1, fill_value=EPS).tolist(), [11.0, 2.0, 3.0, 4.0, 5.0, EPS])
+        self.assertListEqual(shift(x, -3, fill_value=EPS).tolist(), [16.0, 4.0, 5.0, EPS, EPS, EPS])
 
     def test_staircase(self):
         for seed in range(2):
@@ -305,6 +336,46 @@ class TestStrategy(TestCase):
                         self.assertTrue(np.allclose(starting[list(children_indices)], center_estimate),
                                         msg=f"{i = }, {center_index = }, {estimate[center_index] = }, {starting[list(children_indices)] = }")
             node = node.next.next
+
+        # SORS-ZEST
+        field_state = GenericSorsFieldState(
+            nodes=[
+                StateNode(instance=ZestPointState(
+                        point=Point(index=i, x=pt[0], y=pt[1]),
+                        prior=BayesianMixedPrior(
+                            x=np.arange(0, 37, 2),
+                            q0_normal=np.array([0.  , 0.  , 0.  , 0.01, 0.02, 0.04, 0.08, 0.14, 0.24, 0.37, 0.53,  0.7 , 0.85, 0.96, 1.  , 0.5, 0.1, 0. , 0.]), # mode at 28
+                            q0_abnormal=np.array([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                            weight_normal=0.8,
+                            weight_abnormal=0.2
+                        )
+                    )
+                ) for i, (pretest, pt) in enumerate(zip(np.full(54, 30.0), PATTERN_P24D2))
+            ],
+            batches=(
+            (12,), (15,), (38,), (41,), (27,), (2,), (31,), (10,), (44,), (7,), (29,), (6,), (23,), (48,), (53,), (32,),
+            (33,), (43,), (5,), (4,), (30,), (46,), (47,), (9,), (39,), (0,), (8,), (16,), (11,), (20,), (37,), (24,),
+            (28,), (45,), (52,), (21,), (17,), (35,), (34,), (25,), (13,), (49,), (1,), (19,), (42,), (51,), (14,),
+            (40,), (22,), (3,), (50,), (18,), (36,), (26,)),
+            models=defaultdict(lambda: QuadrantModel(hill=np.full((1, 54), 30.0)))
+        )
+
+        final_node = self.run_simulation(field_state, true_threshold=np.full(54, 20.0))
+        """
+        # Get to first node
+        node = final_node
+        while node.prev and node.prev.prev:
+            node = node.prev.prev
+        # Step through linked list of nodes
+        for [loc] in node.instance.batches:
+            # starting = np.array([n.instance.starting for n in node.instance.nodes])
+            print(f"{loc = }, {node.instance.nodes[loc].instance.estimate = }")
+            while not node.instance.nodes[loc].instance.terminated:
+                print(f"{loc = }, {node.instance.nodes[loc].instance.estimate = }, {BayesianMixedPrior.unicode_format(node.instance.nodes[loc].instance.q)}")
+                print(f"{node.next.instance}")
+                node = node.next.next
+            print(f"{loc = }, {node.instance.nodes[loc].instance.estimate = }")
+        """
 
     @staticmethod
     def run_simulation(state, true_threshold, max_trials=600, seed=0):
