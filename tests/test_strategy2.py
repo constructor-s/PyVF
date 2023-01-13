@@ -101,6 +101,17 @@ class TestStrategy(TestCase):
         self.assertEqual(point.with_offset(+3.1).estimate, 29)
 
     def test_new_zest_with_prior(self):
+        prior = BayesianMixedPrior(
+            x=np.array([0, 15, 30]),
+            q0_normal=np.array([1, 0, 0]),
+            q0_abnormal=np.array([0, 0, 1]),
+            weight_normal=0.75,
+            weight_abnormal=0.25,
+            eps=0.01
+        )
+        self.assertAlmostEqual(prior.q0.sum(), 1.0)
+        self.assertGreater(prior.q0[1], 0.0)
+
         x = np.array([-1, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33])
         normal = np.array([0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 2, 1, 1])
         abnormal = np.array([8, 4, 2, 2, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])

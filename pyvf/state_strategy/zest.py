@@ -52,7 +52,10 @@ class BayesianMixedPrior:
 
     @property
     def q0(self):
-        return (self.weight_normal * self._q0_normal_shifted + self.weight_abnormal * self.q0_abnormal) * 1.0 / (self.weight_normal + self.weight_abnormal)
+        return (
+            1.0 / (self.weight_normal + self.weight_abnormal + self.eps * len(self.x)) *
+            (self.weight_normal * self._q0_normal_shifted + self.weight_abnormal * self.q0_abnormal + self.eps)
+        )
 
     def with_offset(self, db) -> BayesianMixedPrior:
         return evolve(self, offset=self.offset+db)
@@ -115,7 +118,7 @@ class BayesianPointState(PointState, ABC):
             q0_normal = np.where(x < low_indices_db, 0, q0)
             kwargs["prior"] = BayesianMixedPrior(
                 x=x, q0_normal=q0_normal, q0_abnormal=q0_abnormal,
-                weight_normal=q0_normal.sum(), weight_abnormal=q0_abnormal.sum()
+                weight_normal=q0_normal.sum(), weight_abnormal=q0_abnormal.sum(), eps=0
             )
         self.__attrs_init__(**kwargs)
 
