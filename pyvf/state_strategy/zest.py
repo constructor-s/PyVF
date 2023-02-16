@@ -158,7 +158,10 @@ class BayesianPointState(PointState, ABC):
             update = self.pos_fun(trial.threshold - self.prior.x)
         else:
             update = 1 - self.pos_fun(trial.threshold - self.prior.x)
-        return evolve(self, q_update=self.q_update * update, trials=self.trials + 1)
+        q_update = self.q_update * update
+        # prevent q_update from becoming zero or cause numerical issues by normalizing
+        q_update /= q_update.sum()
+        return evolve(self, q_update=q_update, trials=self.trials + 1)
 
     def with_offset(self, db) -> BayesianPointState:
         return evolve(self, prior=self.prior.with_offset(db))
