@@ -70,7 +70,7 @@ def _load_saplocmap(filename):
         _logger.debug("Assuming extended format", filename)
         dtype = [("xod", np.float32), ("yod", np.float32), ("loc", np.int32),
                  ("size", np.float32), ("jmangle", np.float32), ("jmslope", np.float32), ("region", np.int32),
-                 ("blindspot", np.bool), ("ghregion", np.int32)]
+                 ("blindspot", bool), ("ghregion", np.int32)]
     else:
         dtype = [("xod", np.float32),("yod", np.float32),("loc", np.int32),("size", np.float32),("jmangle", np.float32),("jmslope", np.float32),("region", np.int32)]
     with pkg_resources.open_text(saplocmap, filename) as f:
