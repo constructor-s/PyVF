@@ -23,6 +23,7 @@ from unittest import TestCase
 
 from pyvf.state_strategy import *
 from pyvf.state_strategy.fest import FestFieldState
+from pyvf.state_strategy.basic import *
 from pyvf.state_strategy.quadrant import *
 from pyvf.state_strategy.sors import *
 from pyvf.state_strategy.staircase import *
@@ -187,6 +188,42 @@ class TestStrategy(TestCase):
         self.assertSetEqual(set(eager_indices), set((1, 2)))  # 0 has terminated, so 1 can be evaluated now
         self.assertListEqual([n.instance.starting for n in nodes], [30, 20, 30])
 
+    def test_random_field_state(self):
+        def run():
+            field_state_node = StateNode(instance=RandomFieldState(
+                nodes=[
+                    StateNode(instance=
+                        ZestPointState(
+                            point=Point(index=pt[LOC], x=pt[XOD], y=pt[YOD]),
+                            prior=BayesianMixedPrior(
+                                x=np.arange(0, 40, 1), q0_normal=np.ones(40, dtype=float), q0_abnormal=np.ones(40, dtype=float), weight_normal=1.0, weight_abnormal=0.0
+                            ),
+                            terminate_std=1.5
+                        )
+                        # StaircasePointState(
+                        #     point=Point(index=pt[LOC], x=pt[XOD], y=pt[YOD]),
+                        #     pretest=30
+                        # )
+                    ) for pt in PATTERN_P24D2
+                ]
+            ))
+            trial = field_state_node.instance.next_trial
+            i = 0
+            while trial is not None:
+                i += 1
+                seen = trial.threshold <= 30 if trial.point.index != 34 else False
+                trial = evolve(trial, seen=seen)
+                field_state_node = field_state_node.add_trial(trial)
+                # print(i, trial, np.around(field_state_node.instance.estimate))
+                trial = field_state_node.instance.next_trial
+            # print(np.around(field_state_node.instance.estimate))
+            return field_state_node
+
+        expected = np.full(54, fill_value=30)
+        expected[34] = 0
+        result = run()
+        self.assertTrue(np.allclose(result.instance.estimate, expected, atol=2))
+
     def test_quadrant_field_state(self):
         def run():
             field_state_node = StateNode(instance=QuadrantFieldState(
@@ -194,8 +231,10 @@ class TestStrategy(TestCase):
                     StateNode(instance=
                         ZestPointState(
                             point=Point(index=pt[LOC], x=pt[XOD], y=pt[YOD]),
-                            x=np.arange(0, 40, 1),
-                            q0=np.ones(40, dtype=float),
+                            prior=BayesianMixedPrior(
+                                x=np.arange(0, 40, 1), q0_normal=np.ones(40, dtype=float),
+                                q0_abnormal=np.ones(40, dtype=float), weight_normal=1.0, weight_abnormal=0.0
+                            ),
                             terminate_std=1.5
                         )
                         # StaircasePointState(
