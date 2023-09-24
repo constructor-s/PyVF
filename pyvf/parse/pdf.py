@@ -349,6 +349,8 @@ class HFAPDFParser:
     def n_vf_loc(self):
         if self.pattern == "Central 24-2 Threshold Test":
             return 54
+        if self.pattern == "Central 24-2C Threshold Test":
+            return 64
         else:
             raise NotImplementedError(f"n_vf_loc is not yet implemented for {self.pattern}")
 
@@ -356,6 +358,8 @@ class HFAPDFParser:
     def n_td_loc(self):
         if self.pattern == "Central 24-2 Threshold Test":
             return 52
+        if self.pattern == "Central 24-2C Threshold Test":
+            return 62
         else:
             raise NotImplementedError(f"n_td_loc is not yet implemented for {self.pattern}")
 
@@ -378,11 +382,19 @@ class HFAPDFParser:
                 assert False, f"Invalid self.laterality == {self.laterality} encountered in vf parsing"
             value_list = [self.get_value_from_matrix(m) for m in matrices]
         else:
-            # Old method of using keywords
-            if self.get_value("Total Deviation", offset=-1) == "See Total Deviation plot.":
-                value_list = self.get_value_list("Total Deviation", offset_start=-4-self.n_td_loc-self.n_vf_loc, length=self.n_vf_loc)
-            else:
-                value_list = self.get_value_list("Total Deviation", offset_start=-self.n_td_loc*2-self.n_vf_loc, length=self.n_vf_loc)
+            value_list = []
+
+        # Old method of using keywords
+        if self.get_value("Total Deviation", offset=-1) == "See Total Deviation plot.":
+            value_list_from_keywords = self.get_value_list("Total Deviation", offset_start=-4-self.n_td_loc-self.n_vf_loc, length=self.n_vf_loc)
+        else:
+            value_list_from_keywords = self.get_value_list("Total Deviation", offset_start=-self.n_td_loc*2-self.n_vf_loc, length=self.n_vf_loc)
+
+        if not value_list:  # New matrix method is not supported
+            value_list = value_list_from_keywords
+        elif value_list != value_list_from_keywords:  # Cross-check results from two methods
+            _logger.warning(f"Please double check results: \n%s is not equal to \n%s", value_list, value_list_from_keywords)
+
         values = [float(i) if i != "<0" else -1.0 for i in value_list]
         assert all(map(lambda x: x >= -1, values))
         return values
