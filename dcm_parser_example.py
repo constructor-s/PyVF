@@ -29,7 +29,7 @@ import logging
 _logger = logging.getLogger(__name__)
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser("Demo of HFA DCM SFA parsing")
+    parser = argparse.ArgumentParser(description="Demo of HFA DCM SFA parsing")
     parser.add_argument("-i", "--input", required=True, nargs="+", help="input.dcm")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()

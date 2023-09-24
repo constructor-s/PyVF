@@ -57,7 +57,7 @@ def anonymize_dcm(input_file, output_file):
 
 
 if __name__ == '__main__':
-    parser = ArgumentParser("Anonymize Zeiss Forum HFA visual field data")
+    parser = ArgumentParser(description="Anonymize Zeiss Forum HFA visual field data")
     parser.add_argument("-i", "--input", type=str, required=True)
     parser.add_argument("-o", "--output", type=str, required=True)
     args = parser.parse_args()

@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pyvf.stats.regression
 
-parser = ArgumentParser("Linear regression from summary table")
+parser = ArgumentParser(description="Linear regression from summary table")
 parser.add_argument("-i", "--input", type=str, required=True, help="Summary CSV file")
 args = parser.parse_args()
 

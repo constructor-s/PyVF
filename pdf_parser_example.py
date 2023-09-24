@@ -29,7 +29,7 @@ import logging
 _logger = logging.getLogger(__name__)
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser("Demo of HFA PDF SFA parsing")
+    parser = argparse.ArgumentParser(description="Demo of HFA PDF SFA parsing")
     parser.add_argument("-i", "--input", required=True, nargs="+", help="input.pdf")
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("-s", "--silent", action="store_true", help="Suppress print (useful for debugging)")

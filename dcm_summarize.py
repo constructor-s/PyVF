@@ -36,7 +36,7 @@ sh.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(me
 _logger.addHandler(sh)
 _logger.setLevel(logging.DEBUG)
 
-argparser = ArgumentParser("Summarize visual field results to CSV")
+argparser = ArgumentParser(description="Summarize visual field results to CSV")
 argparser.add_argument("-i", "--input", type=str, required=True, nargs="+",
                        help="One or more glob patterns of .dcm files. Note must convert to / on Windows paths.")
 argparser.add_argument("-o", "--output", type=str, required=True, help="Output CSV file")

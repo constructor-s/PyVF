@@ -26,7 +26,7 @@ import pathlib
 import pyvf.parse.dcm
 from argparse import ArgumentParser
 
-parser = ArgumentParser("Anonymize Zeiss Forum HFA visual field data")
+parser = ArgumentParser(description="Anonymize Zeiss Forum HFA visual field data")
 parser.add_argument("-i", "--input", type=str, required=True)
 parser.add_argument("-n", "--dry-run", action="store_true")
 args = parser.parse_args()
