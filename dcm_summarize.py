@@ -45,29 +45,32 @@ args = argparser.parse_args()
 VFSummary = namedtuple("VFSummary",
                        ["TEST_ID", "STUDY_ID", "PATTERN", "ROUTINE", "AGE_HFA", "SIDE", "MD_HFA", "PSD_HFA", "VFI_HFA",
                         "GHT_HFA", "FPR_HFA", "FNR_HFA", "FLR_HFA", "DATE_HFA", "TIME_HFA", "DURATION_HFA",
-                        'FILE', 'FOLDER',
+                        "FILE", "FOLDER",
                         "L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9", "L10", "L11", "L12", "L13", "L14",
                         "L15", "L16", "L17", "L18", "L19", "L20", "L21", "L22", "L23", "L24", "L25", "L26",
                         "L27", "L28", "L29", "L30", "L31", "L32", "L33", "L34", "L35", "L36", "L37", "L38",
                         "L39", "L40", "L41", "L42", "L43", "L44", "L45", "L46", "L47", "L48", "L49", "L50",
-                        "L51", "L52", "L53", "L54"],
-               # defaults=["", "", "", "", pd.NA, "", pd.NA, pd.NA, pd.NA,
-               #          "", pd.NA, pd.NA, pd.NA, pd.NaT, pd.NaT, pd.NA,
-               #          pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA,
-               #          pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA,
-               #          pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA,
-               #          pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA,
-               #          pd.NA, pd.NA, pd.NA, pd.NA]
-                       )
+                        "L51", "L52", "L53", "L54", "L55", "L56", "L57", "L58", "L59", "L60", "L61", "L62",
+                        "L63", "L64"],
+               defaults=["", "", "", "", pd.NA, "", pd.NA, pd.NA, pd.NA,
+                         "", pd.NA, pd.NA, pd.NA, pd.NaT, pd.NaT, pd.NA,
+                         pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA,
+                         pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA,
+                         pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA,
+                         pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA,
+                         pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA,
+                         pd.NA, pd.NA]
+                        )
 
 summaries = []
 for test_file in itertools.chain(*map(glob.glob, args.input)):
     parser = pyvf.parse.parse(test_file)  # type: pyvf.parse.dcm.HFADCMParser
     _logger.debug(test_file)
-    if parser.pattern != "Central 24-2 Threshold Test":
+    if parser.pattern not in ("Central 24-2 Threshold Test", "Central 24-2C Threshold Test"):
         _logger.warning("Skipping %s: %s", parser.pattern, test_file)
         continue
     try:
+        vf = parser.pdf_parser.vf
         field = VFSummary(
             TEST_ID=parser.dataset.StudyInstanceUID,
             STUDY_ID=parser.id,
@@ -87,7 +90,7 @@ for test_file in itertools.chain(*map(glob.glob, args.input)):
             DURATION_HFA=parser.pdf_parser.test_duration,
             FILE=test_file,
             FOLDER=Path(test_file).parent.absolute().name,
-            **({f"L{i + 1}": parser.pdf_parser.vf[i] for i in range(54)})
+            **({f"L{i + 1}": vf[i] for i in range(len(vf))})
         )
     except ValueError:
         field = VFSummary(
@@ -108,8 +111,7 @@ for test_file in itertools.chain(*map(glob.glob, args.input)):
             TIME_HFA=parser.datetime.time().replace(microsecond=0),
             DURATION_HFA=pd.NA,
             FILE=test_file,
-            FOLDER=Path(test_file).parent.absolute().name,
-            **({f"L{i + 1}": pd.NA for i in range(54)})
+            FOLDER=Path(test_file).parent.absolute().name
         )
 
     summaries.append(field)
