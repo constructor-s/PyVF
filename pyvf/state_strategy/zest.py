@@ -64,11 +64,12 @@ class BayesianMixedPrior:
     def _q0_normal_shifted(self):
         dx = self.x[1] - self.x[0]
         assert np.all(np.diff(self.x) == dx), "Only equal spacing is supported"
-        return shift(
+        q = shift(
             self.q0_normal,
             round(self.offset * 1.0 / dx),
             self.eps
         )
+        return 1.0 / q.sum() * q
 
     @property
     def pretest(self):
